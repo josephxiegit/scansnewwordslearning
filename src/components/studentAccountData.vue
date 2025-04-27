@@ -80,6 +80,26 @@ const handlePassword = (pwd) => {
     }, 1500) // 给点时间让用户看到 toast
   }
 };
+// 筛选数据
+const showfilterBox = ref(false);
+const valueFilter = ref("");
+const filterData = async () => {
+  if(valueFilter.value == "") return;
+  const params = new URLSearchParams();
+  params.append("method", "filterData");
+  params.append("valueFilter", valueFilter.value);
+  const toast1 = showLoadingToast({
+    duration: 0,
+    message: "加载中...",
+  });
+  const response = await axios.post("scans/", params);
+  toast1.close();
+
+  filterXlsmData.value = response.data;
+  showfilterBox.value = false;
+  // console.log("filterXlsmData: ", filterXlsmData.value);
+}
+
 onMounted(() => {
   let localTeacherPassword = window.localStorage.getItem("teacherPassword");
   // console.log("localTeacherPassword: ", localTeacherPassword);
@@ -96,7 +116,11 @@ onMounted(() => {
 <template>
   <div class="parent-container">
     <div class="nav-bar-container">
-      <van-nav-bar title="数据列表"> </van-nav-bar>
+      <van-nav-bar 
+      title="数据列表"
+      @click-left="showfilterBox=true"
+      left-text="筛选"
+      > </van-nav-bar>
     </div>
 
     <PasswordDialog
@@ -156,6 +180,39 @@ onMounted(() => {
         </van-cell>
       </van-swipe-cell>
     </van-cell-group>
+
+    <!-- 筛选 -->
+    <van-popup
+      v-model:show="showfilterBox"
+      position="bottom"
+      :style="{ height: '35%' }"
+      closeable
+      :lock-scroll="false"
+    >
+      <van-cell-group inset>
+        <van-cell-group inset style="">
+        <div style="font-size: 18px; font-weight: 700; margin: 1rem">
+          筛选试题
+        </div>
+        <!-- 关键词筛选 -->
+        <van-field
+          v-model="valueFilter"
+          label="筛选内容"
+          placeholder="请输入关键词"
+        />
+
+
+        <van-button
+          @click="filterData()"
+          type="success"
+          block
+          style="margin-top: 1rem"
+          >筛选试题</van-button
+        >
+
+      </van-cell-group>
+      </van-cell-group>
+    </van-popup>
   </div>
 </template>
 

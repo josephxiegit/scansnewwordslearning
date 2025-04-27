@@ -98,6 +98,32 @@ const handlePassword = (pwd) => {
     }, 1500) // 给点时间让用户看到 toast
   }
 };
+// 多选修改分组
+const cellValue = ref(true);
+const valueNewGroup = ref("");
+const valueNewIspinned = ref("");
+const valueReview = ref("");
+const showReviseGroup = ref(false);
+const isMultiSelectMode = ref(false);
+const toggleMultiSelectMode = () => {
+  cellValue.value = !cellValue.value;
+  isMultiSelectMode.value = !isMultiSelectMode.value;
+  if (!isMultiSelectMode.value) {
+    // 清除所有选择
+    selectedItems.value = [];
+  }
+};
+const selectItem = (index) => {
+  // 选中删除checkbox
+  const selectedIndex = selectedItems.value.indexOf(index);
+  if (selectedIndex !== -1) {
+    selectedItems.value.splice(selectedIndex, 1);
+  } else {
+    selectedItems.value.push(index);
+  }
+};
+
+
 onMounted(() => {
   let localTeacherPassword = window.localStorage.getItem("teacherPassword");
   // console.log("localTeacherPassword: ", localTeacherPassword);
@@ -114,7 +140,14 @@ onMounted(() => {
 <template>
   <div class="parent-container">
     <div class="nav-bar-container">
-      <van-nav-bar title="xlsm列表"> </van-nav-bar>
+      <van-nav-bar 
+        title="xlsm列表"
+        :left-text="isMultiSelectMode ? '关闭' : '多选'"
+        :right-text="isMultiSelectMode ? '提交' : ''"
+        @click-left="toggleMultiSelectMode()"
+        @click-right=""
+        
+        > </van-nav-bar>
     </div>
     <PasswordDialog
       v-model:show="showDialogPassWord"
