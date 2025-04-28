@@ -35,7 +35,7 @@ function formatDate_log(isoString) {
   return `${year}年${month}月${day}日${hours}时${minutes}分`;
 }
 const deleteItem = (index) => {
-  console.log('index: ', index);
+  // console.log('index: ', index);
   showConfirmDialog({
     title: `${filterXlsmData.value[index]['title']}`,
     message: `是否确认删除?`,

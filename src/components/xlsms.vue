@@ -24,6 +24,7 @@ import { useRouter } from "vue-router";
 const selectedItems = ref([]);
 const filterXlsmData = ref([]);
 const showDialogPassWord = ref(false);
+
 function formatDate_log(isoString) {
   const date = new Date(isoString);
   const year = date.getFullYear();
@@ -35,7 +36,6 @@ function formatDate_log(isoString) {
   return `${year}年${month}月${day}日${hours}时${minutes}分`;
 }
 const updateData = (item) => {
-  console.log(item);
   showConfirmDialog({
     title: `${item}`,
     message: `是否确认添加试题?`,
@@ -100,10 +100,6 @@ const handlePassword = (pwd) => {
 };
 // 多选修改分组
 const cellValue = ref(true);
-const valueNewGroup = ref("");
-const valueNewIspinned = ref("");
-const valueReview = ref("");
-const showReviseGroup = ref(false);
 const isMultiSelectMode = ref(false);
 const toggleMultiSelectMode = () => {
   cellValue.value = !cellValue.value;
@@ -114,7 +110,7 @@ const toggleMultiSelectMode = () => {
   }
 };
 const selectItem = (index) => {
-  // 选中删除checkbox
+  // 选中checkbox
   const selectedIndex = selectedItems.value.indexOf(index);
   if (selectedIndex !== -1) {
     selectedItems.value.splice(selectedIndex, 1);
@@ -122,7 +118,29 @@ const selectItem = (index) => {
     selectedItems.value.push(index);
   }
 };
+const updateMultiData = async () => {
+  showConfirmDialog({
+    title: "提交数据",
+    message: `是否确认提交${selectedItems.value.length}条？`,
+    theme: "round-button",
+  }).then(async () => {
+    // console.log('selectedItems', selectedItems.value);
+    const titles = selectedItems.value.map(index => filterXlsmData.value[index]);
+    // console.log('titles: ', titles)
+    const params = new URLSearchParams();
+    params.append("method", "xlsmToSqlite_multi");
+    params.append("item", JSON.stringify(titles));
+    const toast1 = showLoadingToast({
+      duration: 0,
+      message: "提交中...",
+    });
+    const response = await axios.post("scans/", params);
+    toast1.close();
+    isMultiSelectMode.value = false;
 
+  })
+
+}
 
 onMounted(() => {
   let localTeacherPassword = window.localStorage.getItem("teacherPassword");
@@ -145,7 +163,7 @@ onMounted(() => {
         :left-text="isMultiSelectMode ? '关闭' : '多选'"
         :right-text="isMultiSelectMode ? '提交' : ''"
         @click-left="toggleMultiSelectMode()"
-        @click-right=""
+        @click-right="updateMultiData()"
         
         > </van-nav-bar>
     </div>
@@ -196,8 +214,15 @@ onMounted(() => {
         <van-cell
           :title="item"
           style="padding-top: 0.5rem; padding-bottom: 0.5rem"
-          @click="updateData(item)"
+          @click="isMultiSelectMode ? selectItem(index) : updateData(item)"
         >
+        <template #right-icon>
+            <van-checkbox
+              v-if="isMultiSelectMode"
+              :checked="selectedItems.includes(index)"
+              @click.stop="selectItem(index)"
+            />
+          </template>
         </van-cell>
       </van-swipe-cell>
     </van-cell-group>
