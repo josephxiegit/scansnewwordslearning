@@ -151,6 +151,12 @@ onMounted(() => {
         :to="{ path: '/studentAccountItems' }"
         >日志</van-tabbar-item
       >
+      <van-tabbar-item
+        icon="link-o"
+        replace
+        :to="{ path: '/machineCode' }"
+        >机器码</van-tabbar-item
+      >
     </van-tabbar>
 
     <!-- 数据列表 -->

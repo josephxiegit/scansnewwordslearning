@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
-
+import happyending from "../assets/sound/happyending.mp3";
 const timeDifference = ref("");
 const accuracyRate = ref("");
 const showClock = ref(false);
@@ -17,6 +17,10 @@ const showSpeechBubble = ref(false);
 const valueUsername = ref("");
 
 onMounted(() => {
+  const audioSuccessPage = new Audio(happyending);
+  audioSuccessPage.play().catch((err) => {
+    console.warn("播放失败：", err);
+  });
   valueUsername.value = JSON.parse(localStorage.getItem("user_mini"));
   accuracyRate.value = history.state.accuracyRate;
   timeDifference.value = history.state.timeDifference;
@@ -54,7 +58,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="page-wrapper">
     <div style="margin: 3rem 0 0 3rem; display: flex">
       <img
         src="../assets/complete.png"
@@ -69,7 +73,9 @@ onMounted(() => {
       <div class="speech-bubble" v-show="showSpeechBubble">
         <div style="text-align: left">
           <div>泰酷啦</div>
-          <div style="margin-top: 1em; font-size: smaller; margin-left: 0.4rem;">{{ valueUsername }}</div>
+          <div style="margin-top: 1em; font-size: smaller; margin-left: 0.4rem">
+            {{ valueUsername }}
+          </div>
         </div>
       </div>
     </div>
@@ -81,8 +87,9 @@ onMounted(() => {
           :rate="100"
           :speed="90"
           text="完成率"
-          :stroke-width="60"
+          :stroke-width="40"
           v-show="showBlueCircle"
+          style="width: 85px; height: 85px"
         />
         <div
           class="circle-text"
@@ -101,9 +108,10 @@ onMounted(() => {
           :rate="parsedAccuracyRate"
           :speed="90"
           color="#4CAF50"
-          :stroke-width="60"
+          :stroke-width="40"
           v-show="showGreenCircle"
           text="正确率"
+          style="width: 85px; height: 85px"
         />
         <div
           class="circle-text"
@@ -138,6 +146,15 @@ onMounted(() => {
 </template>
 
 <style scoped>
+html,
+body {
+  overflow-x: hidden;
+}
+
+.page-wrapper {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
 .container {
   display: flex;
   justify-content: space-between; /* 确保左右图标之间有间距 */
@@ -146,6 +163,9 @@ onMounted(() => {
   width: 100%;
   padding: 0 20px; /* 给左右留出一些空白 */
   box-sizing: border-box; /* 包括内边距在内的宽度计算 */
+  max-width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .slide-in {
@@ -166,7 +186,7 @@ onMounted(() => {
   background-color: white; /* 背景色 */
   color: green; /* 字体颜色 */
   padding: 10px 20px;
-  font-size: 34px;
+  font-size: 7vw;
   border-radius: 10px; /* 圆角效果 */
 
   text-align: center;
@@ -174,6 +194,8 @@ onMounted(() => {
   max-width: 300px; /* 限制气泡最大宽度 */
   line-height: 0.1;
   text-align: right;
+  box-sizing: border-box;
+  word-break: break-word;
 }
 
 .speech-bubble::before {
@@ -207,6 +229,7 @@ onMounted(() => {
   align-items: center;
   margin: 0 10px;
   flex: 1; /* 确保圆环和闹钟会平分宽度 */
+  min-width: 0;
 }
 
 .circle-text {

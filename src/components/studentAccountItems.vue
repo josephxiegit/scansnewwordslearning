@@ -37,13 +37,13 @@ function formatDate_log(isoString) {
 const deleteItem = (index) => {
   // console.log('index: ', index);
   showConfirmDialog({
-    title: `${filterXlsmData.value[index]['title']}`,
+    title: `${filterXlsmData.value[index]["title"]}`,
     message: `是否确认删除?`,
     theme: "round-button",
   }).then(async () => {
     const params = new URLSearchParams();
     params.append("method", "deleteAccountItem");
-    params.append("nid", filterXlsmData.value[index]['nid']);
+    params.append("nid", filterXlsmData.value[index]["nid"]);
     const toast1 = showLoadingToast({
       duration: 0,
       message: "删除中...",
@@ -55,6 +55,35 @@ const deleteItem = (index) => {
     queryData();
   });
 };
+const showAccountLog = ref(false);
+const logItem = ref("");
+const showDetail = (item) => {
+  showAccountLog.value = true;
+  logItem.value = item;
+  console.log("logItem: ", logItem.value);
+  // logItem.value['log'].forEach(item => {
+  //   console.log("用户选择:",item['英文'], item["答案"]);
+  // });
+};
+
+const isCorrectAnswer = (userChoices, answerString, correctAnswer) => {
+  // 把 userChoices 统一为数组
+  if (typeof userChoices === "string") {
+    userChoices = [userChoices];
+  } else if (!Array.isArray(userChoices)) {
+    userChoices = [];
+  }
+
+  const answers = answerString.split("；").sort();
+  const sortedUserChoices = [...userChoices].sort();
+
+  if (sortedUserChoices.length !== answers.length) {
+    return false;
+  }
+
+  return sortedUserChoices.every((choice, index) => choice === answers[index]);
+};
+
 async function queryData() {
   const params = new URLSearchParams();
   params.append("method", "queryItems");
@@ -66,6 +95,51 @@ async function queryData() {
   toast1.close();
 
   filterXlsmData.value = response.data;
+  filterXlsmData.value.forEach((item, index) => {
+    let dataString = item["log"].replace(/(\W)'|'(\W)/g, '$1"$2');
+    dataString = dataString
+      .replace(/([{,]\s*)'([^']+?)'(\s*[:])/g, '$1"$2"$3')
+      .replace(/'/g, '"')
+      .replace(/s" /g, "s' ")
+      .replace(/"s /g, "'s ")
+      .replace(/"t /g, "'t ")
+      .replace(/"m /g, "'m ")
+      .replace(/can"t/g, "can't")
+      .replace(/mustn"t/g, "mustn't")
+      .replace(/needn"t/g, "needn't")
+      .replace(/o"clock/g, "o'clock")
+      .replace(/won"t/g, "won't")
+      .replace(/it"s/gi, "it's")
+      .replace(/we"re/gi, "we're'")
+      .replace(/You"re/gi, "you're'")
+      .replace(/they"re/gi, "they're'");
+
+    dataString = dataString
+      .replace(/\bFalse\b/g, "false")
+      .replace(/\bTrue\b/g, "true");
+    filterXlsmData.value[index]["log"] = JSON.parse(dataString);
+
+    let trueCount = 0;
+    item["log"].forEach((item2, index2) => {
+      const correctAnswer = item2.正确答案 || ["无"];
+      const userSelection = item2.用户选择 ?? ["无"];
+
+      const correctAnswerList = correctAnswer
+        .split("；")
+        .map((answer) => answer.trim());
+      correctAnswerList.sort();
+      userSelection.sort();
+      item2.flag =
+        correctAnswerList.length === userSelection.length &&
+        correctAnswerList.join(",") === userSelection.join(",")
+          ? "true"
+          : "false";
+      if (item2.flag == "true") {
+        trueCount++;
+      }
+    });
+    filterXlsmData.value[index].trueCount = trueCount;
+  });
   console.log("filterXlsmData: ", filterXlsmData.value);
 }
 const handlePassword = (pwd) => {
@@ -74,10 +148,10 @@ const handlePassword = (pwd) => {
     localStorage.setItem("teacherPassword", pwd);
     showDialogPassWord.value = false;
   } else {
-    showToast({ message: '密码错误，即将返回首页', type: 'fail' })
+    showToast({ message: "密码错误，即将返回首页", type: "fail" });
     setTimeout(() => {
-      window.location.href = '/homepage' // 替换为你想跳转的地址
-    }, 1500) // 给点时间让用户看到 toast
+      window.location.href = "/homepage"; // 替换为你想跳转的地址
+    }, 1500); // 给点时间让用户看到 toast
   }
 };
 onMounted(() => {
@@ -89,7 +163,7 @@ onMounted(() => {
     localStorage.setItem("teacherPassword", "ss654321");
     showDialogPassWord.value = false;
   }
-  queryData()
+  queryData();
 });
 </script>
 
@@ -109,10 +183,7 @@ onMounted(() => {
       <van-tabbar-item icon="home-o" replace to="/homepage"
         >主页</van-tabbar-item
       >
-      <van-tabbar-item
-        icon="coupon-o"
-        replace
-        :to="{ path: '/xlsms' }"
+      <van-tabbar-item icon="coupon-o" replace :to="{ path: '/xlsms' }"
         >xlsm</van-tabbar-item
       >
       <van-tabbar-item
@@ -127,17 +198,20 @@ onMounted(() => {
         :to="{ path: '/studentAccountItems' }"
         >日志</van-tabbar-item
       >
+      <van-tabbar-item icon="link-o" replace :to="{ path: '/machineCode' }"
+        >机器码</van-tabbar-item
+      >
     </van-tabbar>
 
     <!-- 数据列表 -->
-    <van-cell-group v-model="selectedItems" style="margin-bottom: 80px">
+    <van-cell-group style="margin-bottom: 80px">
       <van-swipe-cell
         v-for="(item, index) in filterXlsmData"
         :key="index"
         stop-propagation
         style="border-bottom: 1px solid #ebedf0"
       >
-      <template #right>
+        <template #right>
           <van-button
             square
             type="danger"
@@ -147,16 +221,82 @@ onMounted(() => {
           />
         </template>
         <van-cell
-          :label="item.param"
-          :title="`${item.title}\n${formatDate_log(item.create_time)}`"
-          :value="item.username"
+          :label="formatDate_log(item.create_time)"
           style="padding-top: 0.5rem; padding-bottom: 0.5rem"
-          @click=""
+          @click="showDetail(item)"
         >
-        <pre>{{ item.username }}</pre>
+          <template #title>
+            <div style="width: 120%;">{{ item.title }}</div>
+          </template>
+          <template #value>
+            <div
+              style="
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                font-size: smaller
+              "
+            >
+              <div>{{ item.username }}</div>
+              <div>{{ item.trueCount }} / {{ item.log.length }}</div>
+            </div>
+          </template>
         </van-cell>
       </van-swipe-cell>
     </van-cell-group>
+    <!-- 日志详情 -->
+    <van-popup
+      v-model:show="showAccountLog"
+      position="bottom"
+      :style="{ height: '100%' }"
+      closeable
+      :lock-scroll="false"
+    >
+      <van-cell-group inset>
+        <div style="margin-left: 0.5rem; font-weight: 700; margin-right: 2rem">
+          <p style="font-size: 20px; color: black; margin-top: 1rem">Log日志</p>
+        </div>
+
+        <div
+          style="
+            font-size: 14px;
+            color: gray;
+            margin-left: 0.5rem;
+            margin-top: -1rem;
+          "
+        >
+          <div>{{ logItem.title }} | {{ logItem.username }}</div>
+        </div>
+        <div v-for="(item, index) in logItem['log']" :key="index">
+          <van-cell :label="`答案：${item.正确答案 || item.答案}`">
+            <template #title>
+              <div style="font-size: larger; font-weight: 700">
+                {{ item.英文 }}
+                <van-tag v-if="item.is_spell" type="danger" mark>拼</van-tag>
+              </div>
+              <div
+                style="margin-top: 0.5rem"
+                :style="{
+                  color: isCorrectAnswer(
+                    item.用户选择,
+                    item.答案,
+                    item.正确答案
+                  )
+                    ? 'gray'
+                    : 'red',
+                }"
+              >
+                用户选择：{{
+                  Array.isArray(item["用户选择"])
+                    ? item["用户选择"].join("；")
+                    : item["用户选择"] || "无"
+                }}
+              </div>
+            </template>
+          </van-cell>
+        </div>
+      </van-cell-group>
+    </van-popup>
   </div>
 </template>
 

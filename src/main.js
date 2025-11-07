@@ -4,10 +4,13 @@ import App from './App.vue'
 import { createRouter, createWebHistory } from 'vue-router';
 import axiosPlugin from './plugins/axios';
 import Homepage from './components/homepage.vue';
+import HomepageFollow from './components/homepageFollow.vue';
 import Complete from './components/complete.vue';
 import StudentAccountData from './components/studentAccountData.vue';
 import StudentAccountItems from './components/studentAccountItems.vue';
 import Xlsms from './components/xlsms.vue';
+import MachineCode from './components/machineCode.vue';
+import MachineCodeQRCode from './components/MachineCodeQRCode.vue';
 
 import 'vant/lib/index.css';
 import Global from "./components/Global.vue";
@@ -25,9 +28,19 @@ const routes = [
         component: Homepage,
     },
     {
+        path: '/homepageFollow',
+        name: 'homepageFollow',
+        component: HomepageFollow,
+    },
+    {
         path: '/complete',
         name: 'complete',
         component: Complete,
+    },
+    {
+        path: '/machineCode',
+        name: 'machineCode',
+        component: MachineCode,
     },
     {
         path: '/studentAccountData',
@@ -38,6 +51,11 @@ const routes = [
         path: '/studentAccountItems',
         name: 'studentAccountItems',
         component: StudentAccountItems,
+    },
+    {
+        path: '/MachineCodeQRCode',
+        name: 'MachineCodeQRCode',
+        component: MachineCodeQRCode,
     },
     {
         path: '/xlsms',

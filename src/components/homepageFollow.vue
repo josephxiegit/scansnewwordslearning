@@ -636,7 +636,7 @@ function showAnimationWelcome() {
 function showAnimationhalf() {
   const audioFailPage = new Audio(woohooSound);
   audioFailPage.play().catch((err) => {
-      console.warn("播放失败：", err);
+    console.warn("播放失败：", err);
   });
   if (halfRef.value.visible) {
     halfRef.value.hide();
@@ -698,16 +698,17 @@ const newCode = async () => {
       components,
       bindCode: bindCode.value,
     });
-
+    console.log(123)
     console.log("status:", response.data.status);
     console.log("message: ", response.data.message);
+    console.log("status: ", response.data.status);
     toast1.close();
     if (response.data.status === "ok") {
       showCodeInput.value = false;
       showSuccessToast("验证成功");
       localStorage.setItem("bindCode", bindCode.value);
-      initData();
-    } 
+      queryData(1);
+    }
     if (response.data.status === false) {
       localStorage.removeItem("bindCode");
       localStorage.removeItem("client_id");
@@ -730,90 +731,9 @@ const newCode = async () => {
         window.location.reload();
       });
     }
-
   }
 };
 
-// const checkCode = async () => {
-//   if (!bindCode.value) {
-//     showFailToast("不能为空");
-//     return;
-//   } else {
-//     const toast1 = showLoadingToast({
-//       duration: 0,
-//       message: "验证中...",
-//     });
-
-//     const clientId = getOrCreateClientId(); // 生成随机唯一标识
-//     const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
-//     const fingerprintHash = deviceFingerprint.visitorId;
-//     const components = Object.fromEntries(
-//       Object.entries(deviceFingerprint.components).map(([key, val]) => [
-//         key,
-//         val.value,
-//       ])
-//     );
-//     console.log("components: ", components);
-
-//     console.log("Client ID:", clientId);
-//     console.log("Device Fingerprint:", deviceFingerprint);
-
-//     try {
-//       const response = await axios.post("scans/", {
-//         method: "checkCode",
-//         clientId,
-//         fingerprintHash,
-//         components,
-//         bindCode: bindCode.value,
-//       });
-//       console.log("response: ", response.data);
-//       // console.log(response.data.message);
-
-//       toast1.close();
-
-//       // 验证成功
-//       if (response.data.status === "ok") {
-//         showCodeInput.value = false;
-//         showSuccessToast("验证成功");
-//         localStorage.setItem("bindCode", bindCode.value);
-//         initData();
-//       }
-
-//       // 验证失败
-//       if (response.data.status === "forbidden") {
-//         localStorage.removeItem("bindCode");
-//         localStorage.removeItem("client_id");
-//         showDialog({
-//           title: "机器码已被其他机器绑定",
-//           message: "如有异议联系老师：\n微179254624，获新机器码",
-//           theme: "round-button",
-//         }).then(() => {
-//           window.location.reload();
-//         });
-//       }
-
-//       // 验证异常
-//       if (response.data.status === "false") {
-//         localStorage.removeItem("bindCode");
-//         localStorage.removeItem("client_id");
-//         showCodeInput.value = true;
-//         showFailToast("请再次录入");
-//       }
-//     } catch (err) {
-//       toast1.close(); // 保证无论成功失败都关闭 loading
-
-//       showDialog({
-//         title: "其他异常",
-//         message: "如有异议联系老师：\n微179254624，获新机器码",
-//         theme: "round-button",
-//       }).then(() => {
-//         window.location.reload();
-//       });
-
-//       console.error("绑定异常:", err);
-//     }
-//   }
-// };
 function getUUID() {
   try {
     if (
@@ -844,51 +764,13 @@ const getStableFingerprint = async () => {
   const result = await fp.get();
   return result;
 };
-function initData() {
-  synonymsOptions.value = JSON.parse(initialData.value.synonyms);
 
-  const answers = JSON.parse(initialData.value.answers);
-  totalSlides.value = synonymsOptions.value.length;
-
-  // 通用的 Fisher–Yates 洗牌算法
-  function mergeAndShuffle(synonyms, answers) {
-    // 1. 英文 -> 中文答案 的映射表
-    const answerMap = {};
-    answers.forEach((item) => {
-      answerMap[item["英文"].trim()] = item["中文"];
-    });
-
-    // 2. 打乱整个 synonyms 数组
-    const shuffled = shuffleArray([...synonyms]);
-
-    // 3. 合并答案，并打乱每一项的“中文”字段，重新编号
-    shuffled.forEach((item, index) => {
-      const english = item["英文"].trim();
-      const answer = answerMap[english] || "";
-
-      item["答案"] = answer;
-      item["正确答案"] = answer;
-      item["中文"] = shuffleArray(item["中文"]);
-      item["序号"] = (index + 1).toString();
-    });
-
-    // 4. 更新状态
-    synonymsOptions.value = shuffled;
-  }
-
-  function shuffleArray(array) {
-    const arr = [...array];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
-  mergeAndShuffle(synonymsOptions.value, answers);
-  // console.log("synonymsOptions", synonymsOptions.value);
-  flagSingleOrMultiChoice.value = getSingeOrMultiChoice(0);
-  speakWord(synonymsOptions.value[0].英文, synonymsOptions.value[0].正确答案);
+async function queryData(page) {
+  const params = new URLSearchParams();
+  params.append("method", "queryFollowData");
+  params.append("page", page);
+  const response = await axios.post("scans/", params);
+  console.log("response: ", response.data);
 }
 onMounted(async () => {
   // let localTeacherPassword = window.localStorage.getItem("teacherPassword");
@@ -898,7 +780,7 @@ onMounted(async () => {
   // }
 
   // 测试机器码
-  // http://localhost:5173/homepage?param=1748931148
+  // http://localhost:5174/homepageFollow?param=123
   const toast1 = showLoadingToast({
     duration: 0,
     message: "加载中...",
@@ -907,104 +789,79 @@ onMounted(async () => {
   startTime.value = new Date();
 
   // 初始化数据
-  const query = new URLSearchParams(window.location.search);
-  const param = query.get("param");
-  // console.log("param: ", param);
-  let url = Global.BASE_URL + "/scans/?param=" + param;
-  // let url = "http://localhost:5173/homepage?param=123";
-  const params = new URLSearchParams();
-  params.append("method", "queryData");
-
-  const response = await axios.post(url, params, {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  });
-  toast1.close();
-  if (response.data == "未找到数据") {
-    welcomeRef.value.hide();
-    showFailToast("未找到数据");
+  if (!localStorage.getItem("client_id")) {
+    console.log("没有client_id");
+    // 录入机器码
+    showCodeInput.value = true;
     return;
-  }
-  initialData.value = response.data;
-  console.log("initData: ", initialData.value);
-  // synonymsOptions.value = JSON.parse(initialData.value.synonyms).slice(0, 3);
-  // initialData.value.title = "天津卷高等学校招生3500词汇";
-  // 普通高等学校招生全国统一考试（天津卷）英语常用词词汇手册
-  if (initialData.value.title.includes("天津卷高等学校招生3500词汇")) {
-    if (!localStorage.getItem("client_id")) {
-      // 录入机器码
-      showCodeInput.value = true;
-      return;
-    } else {
-      // 自动验证保存的uuid
-      const toast1 = showLoadingToast({
-        duration: 0,
-        message: "验证中...",
+  } else {
+    console.log("有client_id");
+    // 自动验证保存的uuid
+    const toast1 = showLoadingToast({
+      duration: 0,
+      message: "验证中...",
+    });
+
+    const clientId = localStorage.getItem("client_id"); // 获得保存的uuid
+    const bindCode = localStorage.getItem("bindCode"); // 获得保存的bindCode
+    const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
+    const fingerprintHash = deviceFingerprint.visitorId;
+    const components = Object.fromEntries(
+      Object.entries(deviceFingerprint.components).map(([key, val]) => [
+        key,
+        val.value,
+      ])
+    );
+    // console.log("components: ", components);
+    // console.log("Client ID:", clientId);
+    // console.log("Device Fingerprint:", deviceFingerprint);
+
+    try {
+      const response = await axios.post("scans/", {
+        method: "checkCode",
+        clientId,
+        fingerprintHash,
+        components,
+        bindCode,
+        type: "跟读",
       });
+      console.log("status: ", response.data.status);
+      console.log("message: ", response.data.message);
+      console.log(response.data);
 
-      const clientId = localStorage.getItem("client_id"); // 获得保存的uuid
-      const bindCode = localStorage.getItem("bindCode"); // 获得保存的bindCode
-      const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
-      const fingerprintHash = deviceFingerprint.visitorId;
-      const components = Object.fromEntries(
-        Object.entries(deviceFingerprint.components).map(([key, val]) => [
-          key,
-          val.value,
-        ])
-      );
-      // console.log("components: ", components);
-      // console.log("Client ID:", clientId);
-      // console.log("Device Fingerprint:", deviceFingerprint);
+      toast1.close();
+      // 验证成功
+      if (response.data.status === "ok") {
+        queryData(1);
+      }
 
-      try {
-        const response = await axios.post("scans/", {
-          method: "checkCode",
-          clientId,
-          fingerprintHash,
-          components,
-          bindCode,
-          type: "扫码书",
+      // 验证失败
+      if (response.data.status === "forbidden") {
+        localStorage.removeItem("bindCode");
+        localStorage.removeItem("client_id");
+        showDialog({
+          title: "机器码已被其他机器绑定",
+          message: "如有异议联系老师：\n微179254624，获新机器码",
+          theme: "round-button",
+        }).then(() => {
+          window.location.reload();
         });
-        console.log("status: ", response.data.status);
-        console.log("message: ", response.data.message);
-        // console.log(response.data.message);
+      }
 
-        toast1.close();
-        // 验证成功
-        if (response.data.status === "ok") {
-          initData();
-        }
-
-        // 验证失败
-        if (response.data.status === "forbidden") {
-          localStorage.removeItem("bindCode");
-          localStorage.removeItem("client_id");
-          showDialog({
-            title: "机器码已被其他机器绑定",
-            message: "如有异议联系老师：\n微179254624，获新机器码",
-            theme: "round-button",
-          }).then(() => {
-            window.location.reload();
-          });
-        }
-
-        // 验证异常
-        if (response.data.status === "false") {
-          localStorage.removeItem("bindCode");
-          localStorage.removeItem("client_id");
-          showCodeInput.value = true;
-          showFailToast("请再次录入");
-        }
-      } catch (err) {
-        toast1.close(); // 保证无论成功失败都关闭 loading
+      // 验证异常
+      if (response.data.status === "false") {
         localStorage.removeItem("bindCode");
         localStorage.removeItem("client_id");
         showCodeInput.value = true;
-        console.error("绑定异常:", err);
+        showFailToast("请再次录入");
       }
+    } catch (err) {
+      toast1.close(); // 保证无论成功失败都关闭 loading
+      localStorage.removeItem("bindCode");
+      localStorage.removeItem("client_id");
+      showCodeInput.value = true;
+      console.error("绑定异常:", err);
     }
-  } else {
-    // 无需验证设备
-    initData();
   }
 });
 </script>
