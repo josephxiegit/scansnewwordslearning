@@ -96,19 +96,66 @@ const qrDataUrl = ref("");
 const codeValue = ref("");
 const showMachineCode = ref(false);
 const generateCode = (index) => {
-  console.log(filterXlsmData.value[index]["code"]);
-  codeValue.value = filterXlsmData.value[index]["code"];
-  let url =
-    "http://www.tianjinwords.top:8085/MachineCodeQRCode/?param=" +
-    codeValue.value;
-  // let url = "http://localhost:5173/MachineCodeQRCode/?param=abc123XYZ";
-  qrUrl.value = url;
-  showMachineCode.value = true;
-  console.log("qrUrl: ", qrUrl.value);
+  console.log(filterXlsmData.value[index]);
+  if (filterXlsmData.value[index]["type"] == "扫码书") {
+    codeValue.value = filterXlsmData.value[index]["code"];
+    let url =
+      "http://www.tianjinwords.top:8085/MachineCodeQRCode/?param=" +
+      codeValue.value;
+    // let url = "http://localhost:5173/MachineCodeQRCode/?param=abc123XYZ";
+    qrUrl.value = url;
+    showMachineCode.value = true;
+    console.log("qrUrl: ", qrUrl.value);
 
-  QRCode.toDataURL(qrUrl.value, { width: 200 }, (err, url) => {
-    qrDataUrl.value = url;
-  });
+    QRCode.toDataURL(qrUrl.value, { width: 200 }, (err, url) => {
+      qrDataUrl.value = url;
+    });
+  }
+  if (filterXlsmData.value[index]["type"] == "跟读") {
+    const codeText = filterXlsmData.value[index]["code"];
+    // 使用兼容性更好的剪贴板复制方法
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      // 现代浏览器 API
+      navigator.clipboard.writeText(codeText).then(() => {
+        showToast("已复制到剪贴板");
+      }).catch(() => {
+        // 降级方案：使用传统方法
+        fallbackCopy(codeText);
+      });
+    } else {
+      // 降级方案
+      fallbackCopy(codeText);
+    }
+  }
+};
+
+// 备用复制方法（兼容旧浏览器）
+const fallbackCopy = (text) => {
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    // 避免滚动条出现
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    if (successful) {
+      showToast("已复制到剪贴板");
+    } else {
+      showToast("复制失败，请重试");
+    }
+  } catch (err) {
+    showToast("复制失败，请重试");
+  } finally {
+    // 清理DOM元素
+    const textArea = document.querySelector('textarea[style*="-999999px"]');
+    if (textArea) {
+      document.body.removeChild(textArea);
+    }
+  }
 };
 const saveImage = () => {
   if (!qrDataUrl.value) return;
@@ -346,9 +393,7 @@ onMounted(() => {
           提交
         </van-button>
       </van-cell-group>
-      <van-divider
-        :style="{ borderColor: '#1989fa', padding: '0 16px' }"
-      >
+      <van-divider :style="{ borderColor: '#1989fa', padding: '0 16px' }">
         扫码书 / 跟读
       </van-divider>
       <div style="font-size: 18px; font-weight: 700; margin: 1rem 1rem 1rem">
