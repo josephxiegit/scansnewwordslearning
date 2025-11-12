@@ -1,9 +1,8 @@
 <script setup>
-
-import { ref, onMounted, onUnmounted, getCurrentInstance, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, getCurrentInstance, watch } from "vue";
 import "vant/lib/index.css";
 
-import gsap from 'gsap';
+import gsap from "gsap";
 
 defineProps({
   msg: String,
@@ -38,12 +37,14 @@ const originalWordsList = ref([]); // 保存原始单词列表
 const isShuffled = ref(false); // 标记是否为乱序状态
 const showWordsList = ref(false);
 const currentEpisode = ref(0);
-const currentPlayingWord = ref(''); // 当前播放的单词，用于高亮显示
+const currentPlayingWord = ref(""); // 当前播放的单词，用于高亮显示
 
 const showTabNav = ref(false);
 
 // 保存原始标题，用于组件卸载时恢复
-let originalTitle = '';
+let originalTitle = "";
+// 书籍版本变量
+const bookVersion = ref("mini"); // 默认值为精简版 mini，完整版为 full
 
 // 动画
 const animationVisible = ref(false);
@@ -54,7 +55,19 @@ onMounted(() => {
   // 保存原始标题
   originalTitle = document.title;
   // 设置新标题
-  document.title = '天津高考3500跟读发音';
+  document.title = "天津高考3500跟读发音";
+  
+  // 清空wordsList数组
+  wordsList.value = [];
+
+  // 检查本地存储是否有保存的书籍版本
+  const storedBookVersion = localStorage.getItem("bookVersion");
+  if (storedBookVersion) {
+    bookVersion.value = storedBookVersion;
+  }
+
+  // 监听自定义事件，获取版本选择
+  window.addEventListener("version-selected", handleVersionSelected);
 });
 
 // 组件卸载时恢复原始标题
@@ -62,7 +75,40 @@ onUnmounted(() => {
   if (originalTitle) {
     document.title = originalTitle;
   }
+
+  // 移除事件监听器
+  window.removeEventListener("version-selected", handleVersionSelected);
 });
+
+// 处理版本选择事件
+function handleVersionSelected(event) {
+  bookVersion.value = event.detail.version;
+  // 这里可以根据选择的版本执行相应的逻辑
+  console.log("Selected book version:", bookVersion.value);
+}
+
+// 返回主页方法
+function goToHomepage() {
+  window.location.reload();
+}
+
+// 上一页功能
+function goToPreviousPage() {
+  if (currentEpisode.value > 1) {
+    const prevEpisode = currentEpisode.value - 1;
+    handleEpisodeClick(prevEpisode);
+  }
+}
+
+// 下一页功能
+function goToNextPage() {
+  // 根据版本确定最大页码
+  const maxEpisode = bookVersion.value === "full" ? 456 : 80;
+  if (currentEpisode.value < maxEpisode) {
+    const nextEpisode = currentEpisode.value + 1;
+    handleEpisodeClick(nextEpisode);
+  }
+}
 
 function showAnimationWelcome() {
   if (welcomeRef.value.visible) {
@@ -74,7 +120,7 @@ function showAnimationWelcome() {
 }
 
 // 选页相关状态
-const panelheight = ref(105);
+const panelheight = ref(90);
 const activeTab = ref(0);
 const episodesData = ref([
   [], // 1-20页
@@ -88,17 +134,36 @@ const lastClickedEpisode = ref(null);
 
 // 生成页码数据
 const generateEpisodesData = () => {
-  for (let i = 1; i <= 20; i++) {
-    episodesData.value[0].push(i);
-  }
-  for (let i = 21; i <= 40; i++) {
-    episodesData.value[1].push(i);
-  }
-  for (let i = 41; i <= 60; i++) {
-    episodesData.value[2].push(i);
-  }
-  for (let i = 61; i <= 80; i++) {
-    episodesData.value[3].push(i);
+  // 清空现有数据
+  episodesData.value = [];
+
+  if (bookVersion.value === "full") {
+    // 原版书模式：每页50个单词，共9页（最后一页456-500范围，但实际只有456个单词）
+    const totalPages = 9; // 456个单词，每页50个，共9页
+    for (let i = 0; i < totalPages; i++) {
+      const group = [];
+      const start = i * 50 + 1;
+      const end = i === totalPages - 1 ? 456 : (i + 1) * 50;
+      for (let j = start; j <= end; j++) {
+        group.push(j);
+      }
+      episodesData.value.push(group);
+    }
+  } else {
+    // 精简版模式：保留原有的分组方式
+    episodesData.value = [[], [], [], []];
+    for (let i = 1; i <= 20; i++) {
+      episodesData.value[0].push(i);
+    }
+    for (let i = 21; i <= 40; i++) {
+      episodesData.value[1].push(i);
+    }
+    for (let i = 41; i <= 60; i++) {
+      episodesData.value[2].push(i);
+    }
+    for (let i = 61; i <= 80; i++) {
+      episodesData.value[3].push(i);
+    }
   }
 };
 
@@ -107,11 +172,11 @@ const base64ToBlob = (base64, mimeType) => {
   const byteString = atob(base64);
   const arrayBuffer = new ArrayBuffer(byteString.length);
   const uint8Array = new Uint8Array(arrayBuffer);
-  
+
   for (let i = 0; i < byteString.length; i++) {
     uint8Array[i] = byteString.charCodeAt(i);
   }
-  
+
   return new Blob([arrayBuffer], { type: mimeType });
 };
 
@@ -119,44 +184,48 @@ const base64ToBlob = (base64, mimeType) => {
 const playWordAudio = (word) => {
   // 设置当前播放的单词，用于高亮显示
   currentPlayingWord.value = word;
-  
+
   const audioBlob = audioCache.get(word);
   if (audioBlob) {
     const audioUrl = URL.createObjectURL(audioBlob);
     const audio = new Audio(audioUrl);
-    
-    audio.play().catch(err => {
+
+    audio.play().catch((err) => {
       console.warn(`播放音频失败: ${word}`, err);
       // 降级方案：使用网络发音
-      const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=1`;
+      const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
+        word
+      )}&type=1`;
       const fallbackAudio = new Audio(fallbackUrl);
-      fallbackAudio.play().catch(fallbackErr => {
-      console.error(`网络发音也失败: ${word}`, fallbackErr);
-      showFailToast("发音失败，请稍后重试");
-      currentPlayingWord.value = ''; // 播放失败时清除高亮
+      fallbackAudio.play().catch((fallbackErr) => {
+        console.error(`网络发音也失败: ${word}`, fallbackErr);
+        showFailToast("发音失败，请稍后重试");
+        currentPlayingWord.value = ""; // 播放失败时清除高亮
+      });
+
+      // 播放结束后清除高亮
+      fallbackAudio.onended = () => {
+        setTimeout(() => {
+          currentPlayingWord.value = "";
+        }, 300); // 延迟清除，让用户能看到高亮效果
+      };
     });
-    
-    // 播放结束后清除高亮
-    fallbackAudio.onended = () => {
-      setTimeout(() => {
-        currentPlayingWord.value = '';
-      }, 300); // 延迟清除，让用户能看到高亮效果
-    };
-    });
-    
+
     // 播放结束后释放URL对象并清除高亮
     audio.onended = () => {
       URL.revokeObjectURL(audioUrl);
       // 清除当前播放的单词标记
       setTimeout(() => {
-        currentPlayingWord.value = '';
+        currentPlayingWord.value = "";
       }, 300); // 延迟清除，让用户能看到高亮效果
     };
   } else {
     // 如果缓存中没有，尝试使用网络发音
-    const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=1`;
+    const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
+      word
+    )}&type=1`;
     const fallbackAudio = new Audio(fallbackUrl);
-    fallbackAudio.play().catch(err => {
+    fallbackAudio.play().catch((err) => {
       console.error(`发音失败: ${word}`, err);
       showFailToast("发音失败，请稍后重试");
     });
@@ -166,8 +235,8 @@ const playWordAudio = (word) => {
 // 乱序动画函数
 const animateShuffle = () => {
   // 选中所有单词单元格
-  const cells = document.querySelectorAll('.word-cell');
-  
+  const cells = document.querySelectorAll(".word-cell");
+
   // 先让所有元素随机飞散
   gsap.to(cells, {
     x: () => (Math.random() - 0.5) * 200, // -100~100 随机偏移
@@ -203,9 +272,11 @@ const handleEpisodeClick = async (episode) => {
     });
     return;
   }
-  
+
   // 保存当前点击的页码
   lastClickedEpisode.value = episode;
+  // 更新当前页码状态
+  currentEpisode.value = episode;
 
   // 预加载语音
   const toast = showLoadingToast({
@@ -214,17 +285,34 @@ const handleEpisodeClick = async (episode) => {
     message: "加载词汇音频...",
     loadingType: "spinner",
   });
-  
+
   try {
     let answers = await queryData(episode);
     // 按 number 从小到大排序
-    answers.sort((a, b) => a.number - b.number);
+    if (bookVersion.value === "mini") {
+      answers.sort((a, b) => a.number - b.number);
+    } else {
+      answers.sort((a, b) => {
+        const wordA = a.word.toLowerCase();
+        const wordB = b.word.toLowerCase();
+        // 依次比较前7个字母，从第1个到第7个逐步比较
+        for (let i = 0; i < 7; i++) {
+          const charA = wordA[i] || "";
+          const charB = wordB[i] || "";
+          if (charA !== charB) {
+            return charA.localeCompare(charB);
+          }
+        }
+        // 如果前7个字母完全相同，则按整体字典序比较
+        return wordA.localeCompare(wordB);
+      });
+    }
     // 存储当前单词列表
     wordsList.value = answers;
     originalWordsList.value = [...answers]; // 保存原始顺序
     isShuffled.value = false;
     currentEpisode.value = episode;
-    
+
     const answerSheetProList = answers.map((item) => ({
       word: item.word,
       showChinese: false,
@@ -263,7 +351,6 @@ const handleEpisodeClick = async (episode) => {
     }
     // 加载完成后显示单词列表
     showWordsList.value = true;
-    
   } catch (error) {
     console.error("音频加载失败:", error);
     showFailToast("加载失败，请稍后重试");
@@ -273,7 +360,7 @@ const handleEpisodeClick = async (episode) => {
   }
 
   // 关闭页码选择面板
-  panelheight.value = 105;
+  panelheight.value = 90;
 };
 
 // 试用模式处理函数
@@ -297,12 +384,10 @@ const toggleShuffle = async () => {
     // 打乱顺序但保持number不变
     newOrder = [...wordsList.value].sort(() => Math.random() - 0.5);
   }
-  
 
-  
   // 等待 DOM 更新完成
   // await nextTick();
-  
+
   // 执行飞散动画
   animateShuffle();
 
@@ -310,11 +395,18 @@ const toggleShuffle = async () => {
     wordsList.value = newOrder;
     isShuffled.value = !isShuffled.value;
   }, 200);
-
 };
 
 // 初始化生成页码数据
 generateEpisodesData();
+
+// 监听bookVersion变化，重新生成页码数据
+watch(
+  () => bookVersion.value,
+  () => {
+    generateEpisodesData();
+  }
+);
 
 // 设备信息
 const showCodeInput = ref(false);
@@ -419,6 +511,8 @@ async function queryData(page) {
   const params = new URLSearchParams();
   params.append("method", "queryFollowData");
   params.append("page", page);
+  params.append("book_version", bookVersion.value);
+
   const response = await axios.post("scans/", params);
   console.log("response: ", response.data);
   return response.data;
@@ -426,7 +520,7 @@ async function queryData(page) {
 
 onMounted(async () => {
   showAnimationWelcome();
-  
+
   // 初始化数据
   if (!localStorage.getItem("client_id")) {
     console.log("没有client_id");
@@ -464,13 +558,14 @@ onMounted(async () => {
       console.log(response.data);
 
       toast1.close();
-      
+
       if (response.data.status === "ok") {
         localStorage.setItem("isTrialMode", "false");
         isTrialMode.value = false;
-        handleEpisodeClick(1).finally(() => {
-          panelheight.value = 559;
-        });
+        // handleEpisodeClick(1).finally(() => {
+        //   panelheight.value = 559;
+        // });
+        panelheight.value = 559;
       }
 
       if (response.data.status === "forbidden") {
@@ -498,7 +593,7 @@ onMounted(async () => {
       showCodeInput.value = true;
       console.error("绑定异常:", err);
     }
-    
+
     // 检查是否有试用模式标志
     const trialMode = localStorage.getItem("isTrialMode");
     if (trialMode === "true") {
@@ -514,16 +609,38 @@ onMounted(async () => {
 <template>
   <div class="parent-container">
     <div class="nav-bar-container">
-      <van-nav-bar title="天津高考3500精简版发音跟读"></van-nav-bar>
+      <van-nav-bar
+        left-text="主页"
+        :title="
+          bookVersion === 'full'
+            ? '2026年天津3500原版发音跟读'
+            : '2026年天津3500精简版发音跟读'
+        "
+        @click-left="goToHomepage"
+      ></van-nav-bar>
     </div>
 
     <!-- 导航 -->
     <router-view />
     <van-tabbar route v-show="showTabNav">
-      <van-tabbar-item icon="home-o" replace to="/homepage">主页</van-tabbar-item>
-      <van-tabbar-item icon="coupon-o" replace :to="{ path: '/xlsms' }">xlsm</van-tabbar-item>
-      <van-tabbar-item icon="shopping-cart-o" replace :to="{ path: '/studentAccountData' }">试题</van-tabbar-item>
-      <van-tabbar-item icon="comment-o" replace :to="{ path: '/studentAccountItems' }">日志</van-tabbar-item>
+      <van-tabbar-item icon="home-o" replace to="/homepage"
+        >主页</van-tabbar-item
+      >
+      <van-tabbar-item icon="coupon-o" replace :to="{ path: '/xlsms' }"
+        >xlsm</van-tabbar-item
+      >
+      <van-tabbar-item
+        icon="shopping-cart-o"
+        replace
+        :to="{ path: '/studentAccountData' }"
+        >试题</van-tabbar-item
+      >
+      <van-tabbar-item
+        icon="comment-o"
+        replace
+        :to="{ path: '/studentAccountItems' }"
+        >日志</van-tabbar-item
+      >
     </van-tabbar>
 
     <!-- 输入机器码 -->
@@ -534,7 +651,9 @@ onMounted(async () => {
       :close-on-click-overlay="false"
       round
     >
-      <div style="font-size: 18px; font-weight: 700; margin: 1rem 2rem 1rem 1rem">
+      <div
+        style="font-size: 18px; font-weight: 700; margin: 1rem 2rem 1rem 1rem"
+      >
         录入机器码
       </div>
       <van-cell-group inset>
@@ -544,21 +663,21 @@ onMounted(async () => {
           placeholder="录入书本上机器码"
         />
         <van-button
-      @click="newCode"
-      size="large"
-      type="success"
-      style="margin-top: 2rem"
-    >
-      完成
-    </van-button>
-    <van-button
-      @click="startTrialMode"
-      size="large"
-      type="warning"
-      style="margin-top: 1rem"
-    >
-      试用
-    </van-button>
+          @click="newCode"
+          size="large"
+          type="success"
+          style="margin-top: 2rem"
+        >
+          完成
+        </van-button>
+        <van-button
+          @click="startTrialMode"
+          size="large"
+          type="warning"
+          style="margin-top: 1rem"
+        >
+          试用
+        </van-button>
       </van-cell-group>
     </van-popup>
 
@@ -566,31 +685,37 @@ onMounted(async () => {
     <welcomeFollow ref="welcomeRef" />
 
     <!-- 选页按钮 -->
-    <div style="position: fixed; bottom: 150px; right: 20px; z-index: 99">
-      <van-button
-        type="primary"
-        round
-        size="normal"
-        @click="panelheight = 559"
-      >
+    <div style="position: fixed; bottom: 130px; right: 20px; z-index: 99">
+      <van-button type="success" round size="normal" @click="panelheight = 559">
         选页
       </van-button>
     </div>
 
     <!-- 浮动面板 -->
-    <van-floating-panel v-model:height="panelheight" :close-on-click-overlay="true">
+    <van-floating-panel
+      v-model:height="panelheight"
+      :close-on-click-overlay="true"
+    >
       <div class="floating-panel-content">
         <!-- 收起箭头，仅在面板展开时显示 -->
-        <div v-if="panelheight > 105" class="close-panel-arrow" @click="panelheight = 105">
+        <div
+          v-if="panelheight > 90"
+          class="close-panel-arrow"
+          @click="panelheight = 90"
+        >
           <van-icon name="arrow-down" size="24" color="#1989fa" />
         </div>
         <van-tabs v-model:active="activeTab" animated>
           <van-tab
             v-for="(group, index) in episodesData"
-            :title="`${group[0]}-${group[group.length - 1]}页`"
+            :title="
+              bookVersion === 'full'
+                ? `${group[0]}-${group[group.length - 1]}`
+                : `${group[0]}-${group[group.length - 1]}页`
+            "
             :key="index"
           >
-            <van-grid :column-num="5" :gutter="10" style="padding: 5px;" square>
+            <van-grid :column-num="5" :gutter="10" style="padding: 5px" square>
               <van-grid-item
                 v-for="episode in group"
                 :key="episode"
@@ -598,11 +723,11 @@ onMounted(async () => {
                 :class="{ 'trial-disabled': isTrialMode && episode > 2 }"
                 @click="handleEpisodeClick(episode)"
               >
-                <div 
-                  class="episode-item" 
-                  :class="{ 
+                <div
+                  class="episode-item"
+                  :class="{
                     'episode-active': lastClickedEpisode === episode,
-                    'trial-disabled-item': isTrialMode && episode > 2 
+                    'trial-disabled-item': isTrialMode && episode > 2,
                   }"
                 >
                   <span class="episode-number">{{ episode }}</span>
@@ -613,42 +738,107 @@ onMounted(async () => {
         </van-tabs>
       </div>
     </van-floating-panel>
-    
+
     <!-- 单词列表 -->
-    <div v-if="showWordsList" class="words-list-container" style="width: 100%; padding: 16px; box-sizing: border-box; overflow-x: hidden;">
-      <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 16px; position: relative;">
-        <img src="../assets/sheep_1.gif" alt="单词图标" style="width: 40px; height: 40px; margin-right: auto;" />
-        <h3 style="font-size: 18px; font-weight: bold; margin: 0; position: absolute; left: 50%; transform: translateX(-50%);">第{{ currentEpisode }}页 单词列表</h3>
-        <van-button 
-          size="small" 
-          type="danger" 
-          :plain="!isShuffled" 
-          @click="toggleShuffle" 
-          style="margin-left: auto; z-index: 10;"
+    <div
+      v-if="showWordsList"
+      class="words-list-container"
+      :style="{
+        width: '100%',
+        padding: bookVersion === 'full' ? '30px' : '16px',
+        boxSizing: 'border-box',
+        overflowX: 'hidden'
+      }"
+    >
+      <div
+        style="
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 16px;
+          position: relative;
+        "
+      >
+        <div v-if="bookVersion === 'full'" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%);">
+          <img
+            src="../assets/sheep_2.gif"
+            alt="单词图标"
+            style="width: 60px; height: 60px;margin-bottom: 0;"
+          />
+        </div>
+        <div v-if="bookVersion === 'mini'" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%);">
+          <img
+            src="../assets/sheep_1.gif"
+            alt="单词图标"
+            style="width: 40px; height: 40px;"
+          />
+        </div>
+
+        <h3
+          style="
+            font-size: 18px;
+            font-weight: bold;
+            margin: 0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+          "
         >
-          {{ isShuffled ? '恢复' : '乱序' }}
+          {{
+            bookVersion === 'full'
+              ? `第${currentEpisode}页 单词列表`
+              : `第${currentEpisode}页 单词列表`
+          }}
+        </h3>
+        <van-button
+          v-if="bookVersion !== 'full'"
+          size="small"
+          type="danger"
+          :plain="!isShuffled"
+          @click="toggleShuffle"
+          style="margin-left: auto; z-index: 10"
+        >
+          {{ isShuffled ? "恢复" : "乱序" }}
         </van-button>
       </div>
-      
+
       <van-list
         :loading="false"
         :finished="true"
         :finished-text="'没有更多了'"
-        style="max-height: 500px; overflow-y: auto; overflow-x: hidden; width: 100%; position: relative;"
+        style="
+          max-height: 500px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          width: 100%;
+          position: relative;
+        "
       >
         <van-cell-group>
           <van-cell
             v-for="(item, index) in wordsList"
             :key="index"
-            :title="`${item.number}. ${item.word}`"
+            :title="
+              bookVersion === 'full'
+                ? item.word
+                : `${item.number}. ${item.word}`
+            "
             :label="item.中文 || ''"
-            :value="'🔊'"
+            value=""
             @click="playWordAudio(item.word)"
-            style="cursor: pointer;"
-            :class="['word-cell', { 'word-active': currentPlayingWord === item.word }]"
+            style="cursor: pointer; margin-top: 10px;"
+            :class="[
+              'word-cell',
+              { 'word-active': currentPlayingWord === item.word },
+            ]"
           >
             <template #left-icon>
-              <img src="../assets/speaker.png" style="width: 24px; height: 24px; margin-right: 8px;" alt="发音图标" />
+              <img
+                src="../assets/speaker.png"
+                style="width: 24px; height: 24px; margin-right: 8px"
+                alt="发音图标"
+              />
             </template>
             <template #extra>
               <van-icon name="volume-o" size="20" color="#1989fa" />
@@ -656,12 +846,32 @@ onMounted(async () => {
           </van-cell>
         </van-cell-group>
       </van-list>
+
+      <!-- 上一页/下一页按钮 - 仅在原版书模式下显示 -->
+      <div v-if="bookVersion === 'full'" class="pagination-buttons">
+        <van-button
+          type="primary"
+          :disabled="currentEpisode <= 1"
+          @click="goToPreviousPage"
+          style="margin-right: 10px"
+        >
+          上一页
+        </van-button>
+        <van-button
+          type="primary"
+          :disabled="currentEpisode >= (bookVersion === 'full' ? 456 : 80)"
+          @click="goToNextPage"
+        >
+          下一页
+        </van-button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-html, body {
+html,
+body {
   touch-action: manipulation;
   overflow-x: hidden !important;
   width: 100% !important;
@@ -778,8 +988,6 @@ html, body {
   cursor: not-allowed;
 }
 
-
-
 .parent-container {
   width: 100%;
   height: 100vh;
@@ -793,7 +1001,7 @@ html, body {
 
 /* 单词列表样式 */
 .words-list-container {
-  padding: 16px;
+  padding: 30px;
   background-color: #fff;
   border-radius: 8px;
   margin: 16px;
@@ -803,6 +1011,14 @@ html, body {
   position: relative;
   box-sizing: border-box;
   max-width: calc(100% - 32px) !important;
+}
+
+/* 分页按钮样式 */
+.pagination-buttons {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+  padding: 10px 0;
 }
 
 .word-cell {

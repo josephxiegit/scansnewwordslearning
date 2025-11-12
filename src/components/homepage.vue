@@ -909,7 +909,7 @@ onMounted(async () => {
   // 初始化数据
   const query = new URLSearchParams(window.location.search);
   const param = query.get("param");
-  // console.log("param: ", param);
+  console.log("param: ", param);
   let url = Global.BASE_URL + "/scans/?param=" + param;
   // let url = "http://localhost:5173/homepage?param=123";
   const params = new URLSearchParams();

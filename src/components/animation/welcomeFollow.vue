@@ -13,9 +13,11 @@
           <span class="sub-title-text" style="font-size: 20px;">发音跟读</span><br/>
         </div>
         <img :src="srcTheme" alt="encouragement" />
-        <div class="encouragement-text">加油哦！</div>
+        <div class="encouragement-text">选择版本</div>
+        <button class="version-button full-version-button" @click="selectFullVersion">原版书</button>
+        <button class="version-button mini-version-button" @click="selectMiniVersion">精简版</button>
         <div class="design-text">Designed by xie</div>
-        <button class="close-button" @click="hide">关闭</button>
+        <!-- <button class="close-button" @click="hide">跳过</button> -->
       </div>
     </div>
   </van-overlay>
@@ -30,22 +32,40 @@ const srcTheme = ref("");
 const visible = ref(false);
 const isEntering = ref(false);
 const isExiting = ref(false);
+const bookVersion = ref("mini"); // 默认值为精简版 mini，完整版为 full
 
 function show() {
   visible.value = true;
   isExiting.value = false;
 
   // 八秒后消失
-  setTimeout(() => {
-    hide();
-  }, 8000);
+  // setTimeout(() => {
+  //   hide();
+  // }, 8000);
 }
 
 function hide() {
   // 立即开始退出动画
   isExiting.value = true;
+  // 保存选择的版本到 localStorage
+  localStorage.setItem("bookVersion", bookVersion.value);
+  // 发送自定义事件到父组件
+  const event = new CustomEvent('version-selected', { detail: { version: bookVersion.value } });
+  window.dispatchEvent(event);
   visible.value = false;  // 立即隐藏内容
   isExiting.value = false;
+}
+
+// 选择原版书
+function selectFullVersion() {
+  bookVersion.value = "full";
+  hide();
+}
+
+// 选择精简版
+function selectMiniVersion() {
+  bookVersion.value = "mini";
+  hide();
 }
 
 const methods = { show, hide };
@@ -141,24 +161,59 @@ onMounted(() => {
   margin-bottom: 20px; /* 调整文字与按钮之间的间距 */
 }
 
-/* 新增的关闭按钮样式 */
+/* 版本选择按钮样式 */
+.version-button {
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  border-radius: 12px;
+  margin: 5px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 150px;
+}
+
+.full-version-button {
+  background-color: #1989fa;
+  color: white;
+  margin-bottom: 10px;
+}
+
+.full-version-button:hover {
+  background-color: #0066cc;
+  transform: scale(1.05);
+}
+
+.mini-version-button {
+  background-color: #f7ba1e;
+  color: white;
+  margin-bottom: 20px;
+}
+
+.mini-version-button:hover {
+  background-color: #e6a400;
+  transform: scale(1.05);
+}
+
+/* 关闭按钮样式 */
 .close-button {
   background-color: white;
-  border: 2px solid red; /* 修改边框为红色 */
-  color: red;
-  padding: 5px 10px; /* 缩小按钮的尺寸 */
+  border: 2px solid #999;
+  color: #999;
+  padding: 5px 15px;
   text-align: center;
   text-decoration: none;
   display: inline-block;
-  font-size: 14px; /* 调整字体大小 */
+  font-size: 14px;
   margin-top: 10px;
   cursor: pointer;
-  border-radius: 12px; /* 圆角 */
+  border-radius: 12px;
 }
 
 .close-button:hover {
-  background-color: darkred; /* 鼠标悬停时的颜色 */
-  color: white; /* 鼠标悬停时的字体颜色 */
+  background-color: #999;
+  color: white;
 }
 .header-text {
   font-size: 36px;
