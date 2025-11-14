@@ -263,8 +263,18 @@ const animateShuffle = () => {
 // 点击页码处理函数
 // 试用模式下的页码点击处理函数
 const handleEpisodeClick = async (episode) => {
-  // 检查试用模式下是否点击了超过2页的内容
-  if (isTrialMode.value && episode > 2) {
+  // 检查试用模式下是否点击了超过10页的内容（原版书模式）
+  if (isTrialMode.value && bookVersion.value === "full" && episode > 10) {
+    showDialog({
+      title: "购买提示",
+      message: "联系微信179254624购买",
+      theme: "round-button",
+    });
+    return;
+  }
+  
+  // 检查试用模式下是否点击了超过2页的内容（精简版模式）
+  if (isTrialMode.value && bookVersion.value === "mini" && episode > 2) {
     showDialog({
       title: "购买提示",
       message: "联系微信179254624购买",
@@ -368,6 +378,9 @@ const startTrialMode = () => {
   showCodeInput.value = false;
   isTrialMode.value = true;
   localStorage.setItem("isTrialMode", "true");
+  // 设置试用模式为原版书模式
+  bookVersion.value = "full";
+  localStorage.setItem("bookVersion", "full");
   handleEpisodeClick(1).finally(() => {
     panelheight.value = 559;
   });
@@ -720,14 +733,22 @@ onMounted(async () => {
                 v-for="episode in group"
                 :key="episode"
                 class="episode-item-wrapper"
-                :class="{ 'trial-disabled': isTrialMode && episode > 2 }"
+                :class="{ 
+                  'trial-disabled': isTrialMode && (
+                    (bookVersion === 'full' && episode > 10) || 
+                    (bookVersion === 'mini' && episode > 2)
+                  )
+                }"
                 @click="handleEpisodeClick(episode)"
               >
                 <div
                   class="episode-item"
                   :class="{
                     'episode-active': lastClickedEpisode === episode,
-                    'trial-disabled-item': isTrialMode && episode > 2,
+                    'trial-disabled-item': isTrialMode && (
+                      (bookVersion === 'full' && episode > 10) || 
+                      (bookVersion === 'mini' && episode > 2)
+                    ),
                   }"
                 >
                   <span class="episode-number">{{ episode }}</span>
