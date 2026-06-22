@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, getCurrentInstance, watch } from "vue";
+import { ref, onMounted, onUnmounted, getCurrentInstance, watch, computed } from "vue";
 import "vant/lib/index.css";
 
 import gsap from "gsap";
@@ -38,6 +38,15 @@ const isShuffled = ref(false); // 标记是否为乱序状态
 const showWordsList = ref(false);
 const currentEpisode = ref(0);
 const currentPlayingWord = ref(""); // 当前播放的单词，用于高亮显示
+const isContinuousReading = ref(false); // 连读状态
+const continuousReadingRepeatCount = ref(2); // 连读时每个单词重复次数
+const continuousReadingProgress = ref(null);
+const preloadingEpisode = ref(null);
+const episodeDataCache = new Map();
+let continuousReadingSession = 0;
+let currentAudio = null;
+let currentAudioUrl = "";
+let currentAudioResolve = null;
 
 const showTabNav = ref(false);
 
@@ -76,6 +85,8 @@ onUnmounted(() => {
     document.title = originalTitle;
   }
 
+  stopContinuousReading(true);
+
   // 移除事件监听器
   window.removeEventListener("version-selected", handleVersionSelected);
 });
@@ -94,6 +105,8 @@ function goToHomepage() {
 
 // 上一页功能
 function goToPreviousPage() {
+  stopContinuousReading(true);
+  resetContinuousReadingProgress();
   if (currentEpisode.value > 1) {
     const prevEpisode = currentEpisode.value - 1;
     handleEpisodeClick(prevEpisode);
@@ -102,6 +115,8 @@ function goToPreviousPage() {
 
 // 下一页功能
 function goToNextPage() {
+  stopContinuousReading(true);
+  resetContinuousReadingProgress();
   // 根据版本确定最大页码
   const maxEpisode = bookVersion.value === "full" ? 456 : 80;
   if (currentEpisode.value < maxEpisode) {
@@ -180,8 +195,219 @@ const base64ToBlob = (base64, mimeType) => {
   return new Blob([arrayBuffer], { type: mimeType });
 };
 
+const getMaxEpisode = () => (bookVersion.value === "full" ? 456 : 80);
+const continuousReadingButtonText = computed(() => {
+  if (isContinuousReading.value) {
+    return "暂停";
+  }
+  return continuousReadingProgress.value ? "继续" : "连读";
+});
+
+const resetContinuousReadingProgress = () => {
+  continuousReadingProgress.value = null;
+};
+
+const canAccessEpisode = (episode) => {
+  if (isTrialMode.value && bookVersion.value === "full" && episode > 10) {
+    return false;
+  }
+
+  if (isTrialMode.value && bookVersion.value === "mini" && episode > 2) {
+    return false;
+  }
+
+  return true;
+};
+
+const sortWords = (answers) => {
+  if (bookVersion.value === "mini") {
+    return answers.sort((a, b) => a.number - b.number);
+  }
+
+  return answers.sort((a, b) => {
+    const wordA = a.word.toLowerCase();
+    const wordB = b.word.toLowerCase();
+    // 依次比较前7个字母，从第1个到第7个逐步比较
+    for (let i = 0; i < 7; i++) {
+      const charA = wordA[i] || "";
+      const charB = wordB[i] || "";
+      if (charA !== charB) {
+        return charA.localeCompare(charB);
+      }
+    }
+    // 如果前7个字母完全相同，则按整体字典序比较
+    return wordA.localeCompare(wordB);
+  });
+};
+
+const loadEpisodeData = async (episode, showAudioFailureDialog = true) => {
+  const cacheKey = `${bookVersion.value}-${episode}`;
+  if (episodeDataCache.has(cacheKey)) {
+    return episodeDataCache.get(cacheKey);
+  }
+
+  const answers = sortWords(await queryData(episode));
+  const answerSheetProList = answers.map((item) => ({
+    word: item.word,
+    showChinese: false,
+    audio: null,
+  }));
+
+  let params = new URLSearchParams();
+  params.append("method", "getAudioList");
+  params.append("word_list", JSON.stringify(answerSheetProList));
+
+  const response = await axios.post("scans/", params);
+
+  if (response.data.success && response.data.audio_data) {
+    // 成功的音频存进缓存
+    Object.entries(response.data.audio_data).forEach(([word, obj]) => {
+      try {
+        const blob = base64ToBlob(obj.data, "audio/mpeg");
+        audioCache.set(word, blob);
+      } catch (err) {
+        console.warn(`音频转换失败: ${word}`, err);
+      }
+    });
+
+    // 检查是否有失败的词
+    if (
+      showAudioFailureDialog &&
+      response.data.failed_words &&
+      response.data.failed_words.length > 0
+    ) {
+      const failedList = response.data.failed_words.join("，");
+      showConfirmDialog({
+        theme: "round-button",
+        title: "音频加载失败",
+        message: `以下单词的音频未能加载：\n${failedList}`,
+        confirmButtonText: "知道了",
+      }).catch(() => {
+        // 用户点了取消
+      });
+    }
+  }
+
+  const episodeData = {
+    words: answers,
+    originalWords: [...answers],
+  };
+  episodeDataCache.set(cacheKey, episodeData);
+  return episodeData;
+};
+
+const applyEpisodeData = (episode, episodeData) => {
+  lastClickedEpisode.value = episode;
+  currentEpisode.value = episode;
+  wordsList.value = episodeData.words;
+  originalWordsList.value = [...episodeData.originalWords];
+  isShuffled.value = false;
+  showWordsList.value = true;
+};
+
+const preloadNextEpisode = (episode) => {
+  const nextEpisode = episode + 1;
+  const maxEpisode = getMaxEpisode();
+
+  if (
+    nextEpisode > maxEpisode ||
+    preloadingEpisode.value === nextEpisode ||
+    !canAccessEpisode(nextEpisode)
+  ) {
+    return;
+  }
+
+  preloadingEpisode.value = nextEpisode;
+  loadEpisodeData(nextEpisode, false)
+    .catch((error) => {
+      console.warn(`预加载第${nextEpisode}页失败:`, error);
+    })
+    .finally(() => {
+      if (preloadingEpisode.value === nextEpisode) {
+        preloadingEpisode.value = null;
+      }
+    });
+};
+
+const cleanupCurrentAudio = () => {
+  const audio = currentAudio;
+  const audioUrl = currentAudioUrl;
+  const resolveAudio = currentAudioResolve;
+
+  currentAudio = null;
+  currentAudioUrl = "";
+  currentAudioResolve = null;
+
+  if (audio) {
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.currentTime = 0;
+  }
+
+  if (audioUrl) {
+    URL.revokeObjectURL(audioUrl);
+  }
+
+  if (resolveAudio) {
+    resolveAudio("cancelled");
+  }
+};
+
+const clearPlayingWordLater = (word) => {
+  setTimeout(() => {
+    if (currentPlayingWord.value === word) {
+      currentPlayingWord.value = "";
+    }
+  }, 300);
+};
+
+const playAudioElement = (audio, word, audioUrl = "") => {
+  cleanupCurrentAudio();
+  currentAudio = audio;
+  currentAudioUrl = audioUrl;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (success = true) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      if (currentAudio === audio) {
+        currentAudio = null;
+      }
+      if (currentAudioResolve === finish) {
+        currentAudioResolve = null;
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+        if (currentAudioUrl === audioUrl) {
+          currentAudioUrl = "";
+        }
+      }
+      clearPlayingWordLater(word);
+      resolve(success);
+    };
+
+    currentAudioResolve = finish;
+    audio.onended = () => finish(true);
+    audio.onerror = () => finish(false);
+    audio.play().catch((err) => {
+      console.warn(`播放音频失败: ${word}`, err);
+      finish(false);
+    });
+  });
+};
+
 // 播放单词音频
-const playWordAudio = (word) => {
+const playWordAudio = (word, fromContinuousReading = false) => {
+  if (!fromContinuousReading) {
+    stopContinuousReading(true);
+    resetContinuousReadingProgress();
+  }
+
   // 设置当前播放的单词，用于高亮显示
   currentPlayingWord.value = word;
 
@@ -190,45 +416,177 @@ const playWordAudio = (word) => {
     const audioUrl = URL.createObjectURL(audioBlob);
     const audio = new Audio(audioUrl);
 
-    audio.play().catch((err) => {
-      console.warn(`播放音频失败: ${word}`, err);
-      // 降级方案：使用网络发音
-      const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
-        word
-      )}&type=1`;
-      const fallbackAudio = new Audio(fallbackUrl);
-      fallbackAudio.play().catch((fallbackErr) => {
-        console.error(`网络发音也失败: ${word}`, fallbackErr);
-        showFailToast("发音失败，请稍后重试");
-        currentPlayingWord.value = ""; // 播放失败时清除高亮
-      });
+    return playAudioElement(audio, word, audioUrl).then((success) => {
+      if (success === "cancelled") {
+        return;
+      }
 
-      // 播放结束后清除高亮
-      fallbackAudio.onended = () => {
-        setTimeout(() => {
-          currentPlayingWord.value = "";
-        }, 300); // 延迟清除，让用户能看到高亮效果
-      };
-    });
+      if (!success) {
+        const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
+          word
+        )}&type=1`;
+        const fallbackAudio = new Audio(fallbackUrl);
+        return playAudioElement(fallbackAudio, word).then((fallbackSuccess) => {
+          if (fallbackSuccess === "cancelled") {
+            return;
+          }
 
-    // 播放结束后释放URL对象并清除高亮
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      // 清除当前播放的单词标记
-      setTimeout(() => {
+          if (!fallbackSuccess && !fromContinuousReading) {
+            showFailToast("发音失败，请稍后重试");
+          }
+          if (currentPlayingWord.value === word) {
+            currentPlayingWord.value = "";
+          }
+        });
+      }
+      if (currentPlayingWord.value === word) {
         currentPlayingWord.value = "";
-      }, 300); // 延迟清除，让用户能看到高亮效果
-    };
+      }
+    });
   } else {
     // 如果缓存中没有，尝试使用网络发音
     const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
       word
     )}&type=1`;
     const fallbackAudio = new Audio(fallbackUrl);
-    fallbackAudio.play().catch((err) => {
-      console.error(`发音失败: ${word}`, err);
-      showFailToast("发音失败，请稍后重试");
+    return playAudioElement(fallbackAudio, word).then((success) => {
+      if (success === "cancelled") {
+        return;
+      }
+
+      if (!success && !fromContinuousReading) {
+        showFailToast("发音失败，请稍后重试");
+      }
+      if (currentPlayingWord.value === word) {
+        currentPlayingWord.value = "";
+      }
     });
+  }
+};
+
+const waitForContinuousReading = (ms, sessionId) =>
+  new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(isContinuousReading.value && continuousReadingSession === sessionId);
+    }, ms);
+  });
+
+function stopContinuousReading(silent = false, keepProgress = false) {
+  if (!isContinuousReading.value && !currentAudio) {
+    return;
+  }
+
+  continuousReadingSession += 1;
+  isContinuousReading.value = false;
+  cleanupCurrentAudio();
+  currentPlayingWord.value = "";
+
+  if (!keepProgress) {
+    resetContinuousReadingProgress();
+  }
+
+  if (!silent) {
+    showSuccessToast("已暂停连读");
+  }
+}
+
+const startContinuousReading = async () => {
+  if (isContinuousReading.value) {
+    return;
+  }
+
+  if (!currentEpisode.value) {
+    showFailToast("请先选择页码");
+    return;
+  }
+
+  isContinuousReading.value = true;
+  const sessionId = ++continuousReadingSession;
+  const maxEpisode = getMaxEpisode();
+  let episode = continuousReadingProgress.value?.episode || currentEpisode.value;
+  let wordIndex = continuousReadingProgress.value?.wordIndex || 0;
+  let repeatIndex = continuousReadingProgress.value?.repeatIndex || 0;
+
+  try {
+    while (
+      isContinuousReading.value &&
+      continuousReadingSession === sessionId &&
+      episode <= maxEpisode
+    ) {
+      const loaded = await handleEpisodeClick(episode, true);
+      if (!loaded) {
+        break;
+      }
+
+      preloadNextEpisode(episode);
+      const pageWords = [...wordsList.value];
+      let pageCompleted = true;
+      for (let index = wordIndex; index < pageWords.length; index++) {
+        const item = pageWords[index];
+        if (!isContinuousReading.value || continuousReadingSession !== sessionId) {
+          pageCompleted = false;
+          break;
+        }
+
+        for (
+          let repeat = index === wordIndex ? repeatIndex : 0;
+          repeat < continuousReadingRepeatCount.value;
+          repeat++
+        ) {
+          continuousReadingProgress.value = {
+            episode,
+            wordIndex: index,
+            repeatIndex: repeat,
+          };
+
+          await playWordAudio(item.word, true);
+          if (!isContinuousReading.value || continuousReadingSession !== sessionId) {
+            pageCompleted = false;
+            break;
+          }
+
+          continuousReadingProgress.value = {
+            episode,
+            wordIndex: index,
+            repeatIndex: repeat + 1,
+          };
+
+          const shouldContinue = await waitForContinuousReading(350, sessionId);
+          if (!shouldContinue) {
+            pageCompleted = false;
+            break;
+          }
+        }
+
+        if (!isContinuousReading.value || continuousReadingSession !== sessionId) {
+          pageCompleted = false;
+          break;
+        }
+      }
+
+      if (!pageCompleted) {
+        break;
+      }
+
+      episode += 1;
+      wordIndex = 0;
+      repeatIndex = 0;
+      continuousReadingProgress.value = {
+        episode,
+        wordIndex: 0,
+        repeatIndex: 0,
+      };
+    }
+  } catch (error) {
+    console.error("连读失败:", error);
+    showFailToast("连读中断，请稍后重试");
+  } finally {
+    if (continuousReadingSession === sessionId) {
+      isContinuousReading.value = false;
+      cleanupCurrentAudio();
+      currentPlayingWord.value = "";
+      resetContinuousReadingProgress();
+    }
   }
 };
 
@@ -262,25 +620,19 @@ const animateShuffle = () => {
 
 // 点击页码处理函数
 // 试用模式下的页码点击处理函数
-const handleEpisodeClick = async (episode) => {
-  // 检查试用模式下是否点击了超过10页的内容（原版书模式）
-  if (isTrialMode.value && bookVersion.value === "full" && episode > 10) {
-    showDialog({
-      title: "购买提示",
-      message: "联系微信179254624购买",
-      theme: "round-button",
-    });
-    return;
+const handleEpisodeClick = async (episode, fromContinuousReading = false) => {
+  if (!fromContinuousReading) {
+    stopContinuousReading(true);
+    resetContinuousReadingProgress();
   }
-  
-  // 检查试用模式下是否点击了超过2页的内容（精简版模式）
-  if (isTrialMode.value && bookVersion.value === "mini" && episode > 2) {
+
+  if (!canAccessEpisode(episode)) {
     showDialog({
       title: "购买提示",
       message: "联系微信179254624购买",
       theme: "round-button",
     });
-    return;
+    return false;
   }
 
   // 保存当前点击的页码
@@ -297,73 +649,12 @@ const handleEpisodeClick = async (episode) => {
   });
 
   try {
-    let answers = await queryData(episode);
-    // 按 number 从小到大排序
-    if (bookVersion.value === "mini") {
-      answers.sort((a, b) => a.number - b.number);
-    } else {
-      answers.sort((a, b) => {
-        const wordA = a.word.toLowerCase();
-        const wordB = b.word.toLowerCase();
-        // 依次比较前7个字母，从第1个到第7个逐步比较
-        for (let i = 0; i < 7; i++) {
-          const charA = wordA[i] || "";
-          const charB = wordB[i] || "";
-          if (charA !== charB) {
-            return charA.localeCompare(charB);
-          }
-        }
-        // 如果前7个字母完全相同，则按整体字典序比较
-        return wordA.localeCompare(wordB);
-      });
-    }
-    // 存储当前单词列表
-    wordsList.value = answers;
-    originalWordsList.value = [...answers]; // 保存原始顺序
-    isShuffled.value = false;
-    currentEpisode.value = episode;
-
-    const answerSheetProList = answers.map((item) => ({
-      word: item.word,
-      showChinese: false,
-      audio: null,
-    }));
-
-    let params = new URLSearchParams();
-    params.append("method", "getAudioList");
-    params.append("word_list", JSON.stringify(answerSheetProList));
-
-    const response = await axios.post("scans/", params);
-
-    if (response.data.success && response.data.audio_data) {
-      // 成功的音频存进缓存
-      Object.entries(response.data.audio_data).forEach(([word, obj]) => {
-        try {
-          const blob = base64ToBlob(obj.data, "audio/mpeg");
-          audioCache.set(word, blob);
-        } catch (err) {
-          console.warn(`音频转换失败: ${word}`, err);
-        }
-      });
-
-      // 检查是否有失败的词
-      if (response.data.failed_words && response.data.failed_words.length > 0) {
-        const failedList = response.data.failed_words.join("，");
-        showConfirmDialog({
-          theme: "round-button",
-          title: "音频加载失败",
-          message: `以下单词的音频未能加载：\n${failedList}`,
-          confirmButtonText: "知道了",
-        }).catch(() => {
-          // 用户点了取消
-        });
-      }
-    }
-    // 加载完成后显示单词列表
-    showWordsList.value = true;
+    const episodeData = await loadEpisodeData(episode);
+    applyEpisodeData(episode, episodeData);
   } catch (error) {
     console.error("音频加载失败:", error);
     showFailToast("加载失败，请稍后重试");
+    return false;
   } finally {
     // 关闭 loading
     toast.close();
@@ -371,6 +662,7 @@ const handleEpisodeClick = async (episode) => {
 
   // 关闭页码选择面板
   panelheight.value = 90;
+  return true;
 };
 
 // 试用模式处理函数
@@ -417,6 +709,9 @@ generateEpisodesData();
 watch(
   () => bookVersion.value,
   () => {
+    stopContinuousReading(true);
+    resetContinuousReadingProgress();
+    episodeDataCache.clear();
     generateEpisodesData();
   }
 );
@@ -697,8 +992,45 @@ onMounted(async () => {
     <!-- 动画 -->
     <welcomeFollow ref="welcomeRef" />
 
-    <!-- 选页按钮 -->
-    <div style="position: fixed; bottom: 130px; right: 20px; z-index: 99">
+    <!-- 连读与选页控制区 -->
+    <div class="floating-read-controls">
+      <van-button
+        type="primary"
+        size="small"
+        :disabled="!currentEpisode || currentEpisode <= 1"
+        @click="goToPreviousPage"
+      >
+        上一页
+      </van-button>
+      <van-button
+        :type="isContinuousReading ? 'warning' : 'success'"
+        size="small"
+        :disabled="!currentEpisode"
+        @click="isContinuousReading ? stopContinuousReading(false, true) : startContinuousReading()"
+      >
+        {{ continuousReadingButtonText }}
+      </van-button>
+      <van-button
+        type="primary"
+        size="small"
+        :disabled="!currentEpisode || currentEpisode >= getMaxEpisode()"
+        @click="goToNextPage"
+      >
+        下一页
+      </van-button>
+      <div class="continuous-repeat-control">
+        <span>每词</span>
+        <van-stepper
+          v-model="continuousReadingRepeatCount"
+          integer
+          :min="1"
+          :max="3"
+          :disabled="isContinuousReading"
+          button-size="22px"
+          input-width="26px"
+        />
+        <span>遍</span>
+      </div>
       <van-button type="success" round size="normal" @click="panelheight = 559">
         选页
       </van-button>
@@ -868,24 +1200,6 @@ onMounted(async () => {
         </van-cell-group>
       </van-list>
 
-      <!-- 上一页/下一页按钮 - 仅在原版书模式下显示 -->
-      <div v-if="bookVersion === 'full'" class="pagination-buttons">
-        <van-button
-          type="primary"
-          :disabled="currentEpisode <= 1"
-          @click="goToPreviousPage"
-          style="margin-right: 10px"
-        >
-          上一页
-        </van-button>
-        <van-button
-          type="primary"
-          :disabled="currentEpisode >= (bookVersion === 'full' ? 456 : 80)"
-          @click="goToNextPage"
-        >
-          下一页
-        </van-button>
-      </div>
     </div>
   </div>
 </template>
@@ -1034,12 +1348,41 @@ body {
   max-width: calc(100% - 32px) !important;
 }
 
-/* 分页按钮样式 */
-.pagination-buttons {
+.floating-read-controls {
+  position: fixed;
+  right: 16px;
+  bottom: 118px;
+  z-index: 99;
   display: flex;
-  justify-content: center;
-  margin-top: 20px;
-  padding: 10px 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.continuous-repeat-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 4px;
+  color: #555;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .floating-read-controls {
+    right: 10px;
+    bottom: 108px;
+    gap: 6px;
+    padding: 6px;
+  }
 }
 
 .word-cell {

@@ -43,10 +43,172 @@ const flagSingleOrMultiChoice = ref("Single Choice");
 const checkboxRefs = ref([]);
 const showUserInput = ref(false);
 const valueUsername = ref("");
+const valuePassword = ref("");
 const showTabNav = ref(false);
 const initialData = ref([]);
+const scanLearningUser = ref(null);
+const finalMistakesList = ref([]);
+const firstRoundMistakesList = ref([]);
+const originalTotalCount = ref(0);
+const displayTitle = ref("");
+const passwordErrorCount = ref(0);
+const progressStorageKey = "scan_learning_homepage_progress";
 // 提交按钮
 const mergedData = ref([]);
+
+const getStoredScanLearningUser = () => {
+  try {
+    const rawUser = localStorage.getItem("scan_learning_user");
+    return rawUser ? JSON.parse(rawUser) : null;
+  } catch (error) {
+    localStorage.removeItem("scan_learning_user");
+    return null;
+  }
+};
+
+const ensureScanLearningUser = () => {
+  const storedUser = getStoredScanLearningUser();
+  if (storedUser?.username && storedUser?.password) {
+    scanLearningUser.value = storedUser;
+    valueUsername.value = storedUser.username;
+    valuePassword.value = storedUser.password;
+    return true;
+  }
+
+  showUserInput.value = true;
+  return false;
+};
+
+const getPageIndexFromTitle = (title) => {
+  const match = String(title || "").match(/_(\d+)\.xlsm$/);
+  return match ? Number(match[1]) : Number(initialData.value.param || 0);
+};
+
+const getPageLabel = (pageIndex) => {
+  if (!pageIndex) return "";
+  const page = Math.ceil(pageIndex / 2);
+  const side = pageIndex % 2 === 1 ? 1 : 2;
+  return `${page}-${side}`;
+};
+
+const getHomepageTitle = (title) => {
+  const pageIndex = getPageIndexFromTitle(title);
+  if (!pageIndex) return title || "";
+  return `天津3500词高考${getPageLabel(pageIndex)}`;
+};
+
+const getCurrentProgressIdentity = () => ({
+  nid: initialData.value?.nid,
+  param: initialData.value?.param,
+  title: initialData.value?.title,
+});
+
+const isSameProgressIdentity = (saved) => {
+  const identity = getCurrentProgressIdentity();
+  return (
+    saved?.identity?.nid === identity.nid &&
+    String(saved?.identity?.param) === String(identity.param)
+  );
+};
+
+const saveHomepageProgress = () => {
+  if (!initialData.value?.nid || !synonymsOptions.value.length) return;
+
+  const progress = {
+    identity: getCurrentProgressIdentity(),
+    synonymsOptions: synonymsOptions.value,
+    currentIndex: currentIndex.value,
+    selectedIndexes: selectedIndexes.value,
+    selectedResults: selectedResults.value,
+    selectedItems: selectedItems.value,
+    resultDataTempt: resultDataTempt.value,
+    synonymsSelected: synonymsSelected.value,
+    completeCount: completeCount.value,
+    mistakesList: mistakesList.value,
+    firstRoundMistakesList: firstRoundMistakesList.value,
+    submitList: submitList.value,
+    cartCount: cartCount.value,
+    answerShow: answerShow.value,
+    buttonText: buttonText.value,
+    buttonTextType: buttonTextType.value,
+    isCheckboxDisabled: isCheckboxDisabled.value,
+    textColor: textColor.value,
+    flagChoose: flagChoose.value,
+    flagSingleOrMultiChoice: flagSingleOrMultiChoice.value,
+    totalSlides: totalSlides.value,
+    originalTotalCount: originalTotalCount.value,
+    finalMistakesList: finalMistakesList.value,
+    originalChinese,
+  };
+  localStorage.setItem(progressStorageKey, JSON.stringify(progress));
+};
+
+const restoreHomepageProgress = () => {
+  try {
+    const rawProgress = localStorage.getItem(progressStorageKey);
+    if (!rawProgress) return false;
+    const saved = JSON.parse(rawProgress);
+    if (!isSameProgressIdentity(saved)) return false;
+
+    synonymsOptions.value = saved.synonymsOptions || synonymsOptions.value;
+    currentIndex.value = Number(saved.currentIndex || 0);
+    selectedIndexes.value = saved.selectedIndexes || {};
+    selectedResults.value = saved.selectedResults || {};
+    selectedItems.value = saved.selectedItems || [];
+    resultDataTempt.value = saved.resultDataTempt || [];
+    synonymsSelected.value = saved.synonymsSelected || [];
+    completeCount.value = saved.completeCount || 0;
+    mistakesList.value = saved.mistakesList || [];
+    firstRoundMistakesList.value = saved.firstRoundMistakesList || [];
+    submitList.value = saved.submitList || [];
+    cartCount.value = Number(saved.cartCount || 0);
+    answerShow.value = Boolean(saved.answerShow);
+    buttonText.value = saved.buttonText || "显示答案";
+    buttonTextType.value = saved.buttonTextType || "success";
+    isCheckboxDisabled.value = Boolean(saved.isCheckboxDisabled);
+    textColor.value = saved.textColor || "lightblue";
+    flagChoose.value = saved.flagChoose !== false;
+    flagSingleOrMultiChoice.value =
+      saved.flagSingleOrMultiChoice || getSingeOrMultiChoice(currentIndex.value);
+    totalSlides.value = Number(saved.totalSlides || synonymsOptions.value.length);
+    originalTotalCount.value = Number(saved.originalTotalCount || synonymsOptions.value.length);
+    finalMistakesList.value = saved.finalMistakesList || [];
+    originalChinese = saved.originalChinese || "";
+    countdown.value = 0;
+    isButtonDisabled.value = false;
+
+    nextTick(() => {
+      if (swipeRef.value) {
+        swipeRef.value.swipeTo(currentIndex.value);
+      }
+    });
+    return true;
+  } catch (error) {
+    localStorage.removeItem(progressStorageKey);
+    return false;
+  }
+};
+
+const confirmViewPracticeRecords = async () => {
+  if (!ensureScanLearningUser()) {
+    showFailToast("请先注册/登录");
+    return;
+  }
+
+  try {
+    await showConfirmDialog({
+      title: "查看结果",
+      message: "确定要离开当前页面，查看背诵结果吗？",
+      confirmButtonText: "查看",
+      cancelButtonText: "取消",
+      theme: "round-button",
+    });
+    saveHomepageProgress();
+    router.push({ path: "/practiceRecords", query: { from: "homepage" } });
+  } catch (error) {
+    // 用户取消，无需处理
+  }
+};
 
 const mergeSynonymAndSelections = (synonymsSelectedChinese) => {
   return mergedData.value.map((item) => {
@@ -378,6 +540,7 @@ const handleSwipeChange = (index) => {
 const flagChoose = ref(true);
 const countdown = ref(0);
 const accuracyRate = ref("100%");
+const accuracyText = ref("");
 const goToNext = async () => {
   // 获取当前轮播图的索引
   const currentSlideIndex = currentIndex.value;
@@ -490,10 +653,8 @@ const goToNext = async () => {
         calculateTimeDifference();
 
         if (cartCount.value == 0) {
-          if (localStorage.getItem("user_mini")) {
+          if (ensureScanLearningUser()) {
             redirectPush();
-          } else {
-            showUserInput.value = true;
           }
         } else {
           if (!localStorage.getItem("dailyAnimation")) {
@@ -506,6 +667,10 @@ const goToNext = async () => {
                 synonymsOptions.value.length) *
               100
             ).toFixed(2) + "%";
+          if (!firstRoundMistakesList.value.length) {
+            firstRoundMistakesList.value = JSON.parse(JSON.stringify(mistakesList.value));
+          }
+          finalMistakesList.value = JSON.parse(JSON.stringify(firstRoundMistakesList.value));
 
           showAnimationReview();
           mistakesList.value.forEach((item) => {
@@ -583,22 +748,71 @@ const speakWord = (english, answer) => {
   });
 };
 
-const redirectPush = () => {
-  updateAccountItem();
+const savePracticeResult = async () => {
+  const user = scanLearningUser.value || getStoredScanLearningUser();
+  if (!user?.username || !user?.password) {
+    showUserInput.value = true;
+    return false;
+  }
+
+  const totalCount = originalTotalCount.value || submitList.value.length || synonymsOptions.value.length;
+  const firstRoundMistakes = firstRoundMistakesList.value.length
+    ? firstRoundMistakesList.value
+    : finalMistakesList.value;
+  const wrongCount = firstRoundMistakes.length;
+  const correctCount = Math.max(totalCount - wrongCount, 0);
+  accuracyText.value = `${correctCount}/${totalCount}`;
+  accuracyRate.value = totalCount
+    ? ((correctCount / totalCount) * 100).toFixed(2) + "%"
+    : "0.00%";
+  const pageIndex = getPageIndexFromTitle(initialData.value.title);
+
+  const params = new URLSearchParams();
+  params.append("method", "saveScanLearningPracticeResult");
+  params.append("username", user.username);
+  params.append("password", user.password);
+  params.append("account_id", initialData.value.nid);
+  params.append("title", initialData.value.title);
+  params.append("param", initialData.value.param);
+  params.append("page_index", pageIndex);
+  params.append("page_label", getPageLabel(pageIndex));
+  params.append("total_count", totalCount);
+  params.append("wrong_count", wrongCount);
+  params.append("correct_count", correctCount);
+  params.append("accuracy_text", accuracyText.value);
+  params.append("mistakes", JSON.stringify(firstRoundMistakes));
+  params.append("submit_list", JSON.stringify(submitList.value));
+  params.append("time_spent", timeDifference.value);
+
+  const response = await axios.post("scans/", params);
+  if (response.data?.status !== "ok") {
+    showFailToast(response.data?.message || "保存失败");
+    return false;
+  }
+  return pageIndex;
+};
+
+const redirectPush = async () => {
+  const pageIndex = await savePracticeResult();
+  if (!pageIndex) return;
+  await updateAccountItem();
+  localStorage.removeItem(progressStorageKey);
   router.push({
     path: "/complete",
     state: {
       accuracyRate: accuracyRate.value,
+      accuracyText: accuracyText.value,
       timeDifference: timeDifference.value,
+      pageIndex,
     },
   });
 };
 
 const updateAccountItem = async () => {
   const params = new URLSearchParams();
-  // const valueName = localStorage.getItem("user_mini") || valueUsername.value;
+  const user = scanLearningUser.value || getStoredScanLearningUser();
   const rawName = localStorage.getItem("user_mini");
-  const valueName = rawName ? JSON.parse(rawName) : valueUsername.value;
+  const valueName = user?.username || (rawName ? JSON.parse(rawName) : valueUsername.value);
 
   params.append("log", JSON.stringify(submitList.value));
   params.append("method", "updateAccountItem");
@@ -608,14 +822,74 @@ const updateAccountItem = async () => {
 
   const response = await axios.post("scans/", params);
 };
-const gotoComplete = () => {
+const submitUser = async (mode) => {
   if (valueUsername.value.trim() == "") {
-    showFailToast("录入昵称");
+    showFailToast("录入用户名");
     return;
-  } else {
-    localStorage.setItem("user_mini", JSON.stringify(valueUsername.value));
-    redirectPush();
   }
+  if (valuePassword.value.trim() == "") {
+    showFailToast("录入密码");
+    return;
+  }
+
+  const params = new URLSearchParams();
+  params.append("method", mode === "register" ? "registerScanLearningUser" : "loginScanLearningUser");
+  params.append("username", valueUsername.value.trim());
+  params.append("password", valuePassword.value.trim());
+
+  try {
+    const response = await axios.post("scans/", params);
+    if (response.data?.status !== "ok") {
+      showFailToast(response.data?.message || "注册失败");
+      return;
+    }
+
+    const user = {
+      username: valueUsername.value.trim(),
+      password: valuePassword.value.trim(),
+    };
+    scanLearningUser.value = user;
+    localStorage.setItem("scan_learning_user", JSON.stringify(user));
+    localStorage.setItem("user_mini", JSON.stringify(user.username));
+    showUserInput.value = false;
+    showSuccessToast(response.data.message || "保存成功");
+
+    if (buttonText.value === "任务完成") {
+      redirectPush();
+    }
+  } catch (error) {
+    const data = error.response?.data;
+    if (data?.status === "username_exists") {
+      showFailToast("用户名已存在，请修改用户名");
+      return;
+    }
+    if (data?.status === "username_not_found") {
+      showFailToast("用户名错误");
+      return;
+    }
+    if (data?.status === "password_error") {
+      passwordErrorCount.value += 1;
+      if (passwordErrorCount.value >= 2 && data.password) {
+        showDialog({
+          title: "密码提示",
+          message: `密码连续错误，正确密码是：${data.password}`,
+          theme: "round-button",
+        });
+        return;
+      }
+      showFailToast("密码错误");
+      return;
+    }
+    showFailToast(data?.message || "注册失败");
+  }
+};
+
+const registerUser = () => {
+  submitUser("register");
+};
+
+const loginUser = () => {
+  submitUser("login");
 };
 
 // 半程鼓励
@@ -691,12 +965,13 @@ const newCode = async () => {
     // console.log("Client ID:", clientId);
     // console.log("Device Fingerprint:", deviceFingerprint);
     // console.log("bindCode", bindCode.value);
+    let noSpaceStr = bindCode.value.replace(/\s/g, "");
     const response = await axios.post("scans/", {
       method: "newCode",
       clientId,
       fingerprintHash,
       components,
-      bindCode: bindCode.value,
+      bindCode: noSpaceStr,
     });
 
     console.log("status:", response.data.status);
@@ -846,6 +1121,7 @@ const getStableFingerprint = async () => {
 };
 function initData() {
   synonymsOptions.value = JSON.parse(initialData.value.synonyms);
+  originalTotalCount.value = synonymsOptions.value.length;
 
   const answers = JSON.parse(initialData.value.answers);
   totalSlides.value = synonymsOptions.value.length;
@@ -886,6 +1162,13 @@ function initData() {
   }
 
   mergeAndShuffle(synonymsOptions.value, answers);
+  if (restoreHomepageProgress()) {
+    speakWord(
+      synonymsOptions.value[currentIndex.value].英文,
+      synonymsOptions.value[currentIndex.value].正确答案
+    );
+    return;
+  }
   // console.log("synonymsOptions", synonymsOptions.value);
   flagSingleOrMultiChoice.value = getSingeOrMultiChoice(0);
   speakWord(synonymsOptions.value[0].英文, synonymsOptions.value[0].正确答案);
@@ -925,7 +1208,9 @@ onMounted(async () => {
     return;
   }
   initialData.value = response.data;
+  displayTitle.value = getHomepageTitle(initialData.value.title);
   console.log("initData: ", initialData.value);
+  ensureScanLearningUser();
   // synonymsOptions.value = JSON.parse(initialData.value.synonyms).slice(0, 3);
   // initialData.value.title = "天津卷高等学校招生3500词汇";
   // 普通高等学校招生全国统一考试（天津卷）英语常用词词汇手册
@@ -1013,10 +1298,23 @@ onMounted(async () => {
   <div class="parent-container">
     <div class="nav-bar-container">
       <van-nav-bar
-        :title="initialData.title"
+        :title="displayTitle"
         :left-text="`${completeCount}/${synonymsOptions.length}`"
       >
       </van-nav-bar>
+    </div>
+
+    <div class="records-entry">
+      <van-button
+        icon="todo-list-o"
+        type="primary"
+        plain
+        round
+        size="small"
+        @click="confirmViewPracticeRecords"
+      >
+        查看结果
+      </van-button>
     </div>
 
     <!-- 导航 -->
@@ -1239,26 +1537,39 @@ onMounted(async () => {
       <van-col span="2"></van-col>
     </van-row>
 
-    <!-- 输入姓名 -->
+    <!-- 用户注册/登录 -->
     <van-popup
-      closeable
       v-model:show="showUserInput"
       position="bottom"
-      :style="{ height: '35%' }"
+      :style="{ height: '42%' }"
+      :close-on-click-overlay="false"
       round
     >
       <div style="font-size: 18px; font-weight: 700; margin: 1rem">
-        录入昵称
+        注册/登录
       </div>
       <van-cell-group inset>
         <van-field
           v-model="valueUsername"
-          label="姓名"
-          placeholder="录入姓名"
+          label="用户名"
+          placeholder="录入用户名"
+          autocomplete="username"
         />
-        <van-button @click="gotoComplete" size="large" type="success">
-          完成
-        </van-button>
+        <van-field
+          v-model="valuePassword"
+          label="密码"
+          type="password"
+          placeholder="录入密码"
+          autocomplete="current-password"
+        />
+        <div class="user-actions">
+          <van-button @click="registerUser" size="large" type="primary">
+            注册
+          </van-button>
+          <van-button @click="loginUser" size="large" type="success">
+            登录
+          </van-button>
+        </div>
       </van-cell-group>
     </van-popup>
 
@@ -1356,9 +1667,23 @@ html {
   top: 0;
   z-index: 100;
 }
+
+.records-entry {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 0;
+}
+
 .nav-bar-right {
   display: flex;
   align-items: center;
+}
+
+.user-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
 }
 .nav-button {
   margin-left: 10px;
@@ -1444,4 +1769,3 @@ html {
   }
 }
 </style>
-

@@ -355,12 +355,14 @@ onMounted(() => {
           />
         </template>
         <van-cell
-          :label="`${formatDate_log(item.created_at)}  ${item.type}`"
           :title="item.code"
           style="padding-top: 0.5rem; padding-bottom: 0.5rem"
           @click="generateCode(index)"
         >
           <pre>{{ item.is_used }}</pre>
+              <template #label>
+      <span class="custom-label">{{ `${formatDate_log(item.created_at)}  ${item.type}` }}</span>
+    </template>
         </van-cell>
       </van-swipe-cell>
     </van-cell-group>
@@ -599,6 +601,11 @@ html {
 .qr-url:hover {
   color: #0a71d0;
   text-decoration: underline;
+}
+
+.custom-label {
+  min-width: 200px;
+  display: inline-block; /* 确保 span 元素可以应用宽度 */
 }
 </style>
 

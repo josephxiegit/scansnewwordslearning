@@ -11,6 +11,7 @@ import StudentAccountItems from './components/studentAccountItems.vue';
 import Xlsms from './components/xlsms.vue';
 import MachineCode from './components/machineCode.vue';
 import MachineCodeQRCode from './components/MachineCodeQRCode.vue';
+import PracticeRecords from './components/practiceRecords.vue';
 
 import 'vant/lib/index.css';
 import Global from "./components/Global.vue";
@@ -36,6 +37,11 @@ const routes = [
         path: '/complete',
         name: 'complete',
         component: Complete,
+    },
+    {
+        path: '/practiceRecords',
+        name: 'practiceRecords',
+        component: PracticeRecords,
     },
     {
         path: '/machineCode',
@@ -79,7 +85,7 @@ import {
     Button, Checkbox, CheckboxGroup, NavBar, Cell, CellGroup, Overlay, Swipe, SwipeItem, Card, Progress, Step, Steps, Divider, ActionSheet,
     Loading, Dialog, Field, Notify, Toast, FloatingBubble, Badge, Circle, Grid, GridItem, Col, Row, ConfigProvider, BackTop, DropdownMenu, DropdownItem,
     Image as VanImage, Popup, Rate, Tabbar, TabbarItem, Picker, Tag, RollingText, RadioGroup, Radio, Space, Sidebar, SidebarItem, NoticeBar, Barrage,
-    SwipeCell, Icon, Highlight, FloatingPanel, Sticky, Collapse, CollapseItem, Search, Tab, Tabs, List, Calendar, Switch, CountDown, Stepper, Popover
+    SwipeCell, Icon, Highlight, FloatingPanel, Sticky, Collapse, CollapseItem, Search, Tab, Tabs, List, Calendar, Switch, CountDown, Stepper, Popover, Empty
 } from 'vant';
 import 'vant/lib/index.css';
 
@@ -153,6 +159,7 @@ app.use(Button)
     .use(Badge)
     .use(RollingText)
     .use(CollapseItem)
+    .use(Empty)
     .use(Calendar);
 // 使用vue-router
 app.use(router);

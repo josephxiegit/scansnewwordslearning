@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import happyending from "../assets/sound/happyending.mp3";
+const router = useRouter();
 const timeDifference = ref("");
 const accuracyRate = ref("");
 const showClock = ref(false);
@@ -15,6 +16,7 @@ const currentRate = ref(0);
 const currentRate2 = ref(0);
 const showSpeechBubble = ref(false);
 const valueUsername = ref("");
+const pageIndex = ref("");
 
 onMounted(() => {
   const audioSuccessPage = new Audio(happyending);
@@ -22,8 +24,9 @@ onMounted(() => {
     console.warn("播放失败：", err);
   });
   valueUsername.value = JSON.parse(localStorage.getItem("user_mini"));
-  accuracyRate.value = history.state.accuracyRate;
-  timeDifference.value = history.state.timeDifference;
+  accuracyRate.value = history.state.accuracyRate || "0.00%";
+  timeDifference.value = history.state.timeDifference || "";
+  pageIndex.value = history.state.pageIndex || "";
   setTimeout(() => {
     showSpeechBubble.value = true;
   }, 1000);
@@ -54,6 +57,16 @@ onMounted(() => {
       showClockText.value = true;
     });
   }, 2500); // 闹钟显示延迟 3.5 秒
+
+  setTimeout(() => {
+    router.replace({
+      path: "/practiceRecords",
+      query: pageIndex.value ? { pageIndex: pageIndex.value } : {},
+      state: {
+        pageIndex: pageIndex.value,
+      },
+    });
+  }, 4200);
 });
 </script>
 
