@@ -47,6 +47,7 @@ let continuousReadingSession = 0;
 let currentAudio = null;
 let currentAudioUrl = "";
 let currentAudioResolve = null;
+let persistentAudio = null; // 持久化音频元素，解决安卓微信X5内核Audio对象数量限制
 
 const showTabNav = ref(false);
 
@@ -329,6 +330,16 @@ const preloadNextEpisode = (episode) => {
     });
 };
 
+// 获取持久化音频元素，整个组件生命周期只创建一个Audio实例
+// 这是解决安卓微信X5内核音频问题的关键：复用Audio元素而非每次新建
+const getPersistentAudio = () => {
+  if (!persistentAudio) {
+    persistentAudio = new Audio();
+    persistentAudio.preload = "auto";
+  }
+  return persistentAudio;
+};
+
 const cleanupCurrentAudio = () => {
   const audio = currentAudio;
   const audioUrl = currentAudioUrl;
@@ -342,11 +353,24 @@ const cleanupCurrentAudio = () => {
     audio.onended = null;
     audio.onerror = null;
     audio.pause();
-    audio.currentTime = 0;
+    // 清除src释放资源，确保下次设置新src时状态干净
+    audio.src = "";
+    try {
+      audio.currentTime = 0;
+    } catch (e) {
+      // X5内核可能不支持某些操作，忽略异常
+    }
   }
 
-  if (audioUrl) {
-    URL.revokeObjectURL(audioUrl);
+  // 延迟撤销blob URL，避免安卓微信X5内核中的竞态条件
+  if (audioUrl && audioUrl.startsWith("blob:")) {
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(audioUrl);
+      } catch (e) {
+        // 忽略撤销失败（可能已被撤销或无效URL）
+      }
+    }, 100);
   }
 
   if (resolveAudio) {
@@ -362,8 +386,12 @@ const clearPlayingWordLater = (word) => {
   }, 300);
 };
 
-const playAudioElement = (audio, word, audioUrl = "") => {
+const playAudioElement = (word, audioUrl, isBlobUrl = false) => {
   cleanupCurrentAudio();
+
+  // 使用持久化Audio元素，通过更换src来播放不同单词
+  // 这是解决安卓微信X5内核问题的关键：复用而非新建Audio对象
+  const audio = getPersistentAudio();
   currentAudio = audio;
   currentAudioUrl = audioUrl;
 
@@ -375,17 +403,25 @@ const playAudioElement = (audio, word, audioUrl = "") => {
       }
       settled = true;
 
+      audio.onended = null;
+      audio.onerror = null;
+
       if (currentAudio === audio) {
         currentAudio = null;
       }
       if (currentAudioResolve === finish) {
         currentAudioResolve = null;
       }
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-        if (currentAudioUrl === audioUrl) {
-          currentAudioUrl = "";
-        }
+      // 延迟撤销blob URL，确保X5内核完成资源加载后再清理
+      if (isBlobUrl && audioUrl && currentAudioUrl === audioUrl) {
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(audioUrl);
+          } catch (e) {
+            // 忽略撤销失败
+          }
+        }, 100);
+        currentAudioUrl = "";
       }
       clearPlayingWordLater(word);
       resolve(success);
@@ -393,7 +429,15 @@ const playAudioElement = (audio, word, audioUrl = "") => {
 
     currentAudioResolve = finish;
     audio.onended = () => finish(true);
-    audio.onerror = () => finish(false);
+    audio.onerror = () => {
+      console.warn(`音频播放错误: ${word}`);
+      finish(false);
+    };
+
+    // 设置src并加载，而非创建新Audio对象
+    audio.src = audioUrl;
+    audio.load();
+
     audio.play().catch((err) => {
       console.warn(`播放音频失败: ${word}`, err);
       finish(false);
@@ -414,9 +458,8 @@ const playWordAudio = (word, fromContinuousReading = false) => {
   const audioBlob = audioCache.get(word);
   if (audioBlob) {
     const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
 
-    return playAudioElement(audio, word, audioUrl).then((success) => {
+    return playAudioElement(word, audioUrl, true).then((success) => {
       if (success === "cancelled") {
         return;
       }
@@ -425,8 +468,7 @@ const playWordAudio = (word, fromContinuousReading = false) => {
         const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
           word
         )}&type=1`;
-        const fallbackAudio = new Audio(fallbackUrl);
-        return playAudioElement(fallbackAudio, word).then((fallbackSuccess) => {
+        return playAudioElement(word, fallbackUrl, false).then((fallbackSuccess) => {
           if (fallbackSuccess === "cancelled") {
             return;
           }
@@ -448,8 +490,7 @@ const playWordAudio = (word, fromContinuousReading = false) => {
     const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
       word
     )}&type=1`;
-    const fallbackAudio = new Audio(fallbackUrl);
-    return playAudioElement(fallbackAudio, word).then((success) => {
+    return playAudioElement(word, fallbackUrl, false).then((success) => {
       if (success === "cancelled") {
         return;
       }
