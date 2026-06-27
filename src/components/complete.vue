@@ -17,6 +17,7 @@ const currentRate2 = ref(0);
 const showSpeechBubble = ref(false);
 const valueUsername = ref("");
 const pageIndex = ref("");
+const title = ref("");
 
 onMounted(() => {
   const audioSuccessPage = new Audio(happyending);
@@ -27,6 +28,7 @@ onMounted(() => {
   accuracyRate.value = history.state.accuracyRate || "0.00%";
   timeDifference.value = history.state.timeDifference || "";
   pageIndex.value = history.state.pageIndex || "";
+  title.value = history.state.title || "";
   setTimeout(() => {
     showSpeechBubble.value = true;
   }, 1000);
@@ -61,9 +63,13 @@ onMounted(() => {
   setTimeout(() => {
     router.replace({
       path: "/practiceRecords",
-      query: pageIndex.value ? { pageIndex: pageIndex.value } : {},
+      query: {
+        ...(pageIndex.value ? { pageIndex: pageIndex.value } : {}),
+        ...(title.value ? { title: title.value } : {}),
+      },
       state: {
         pageIndex: pageIndex.value,
+        title: title.value,
       },
     });
   }, 4200);

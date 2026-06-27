@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, getCurrentInstance, reactive, nextTick } from "vue";
+import { ref, onMounted, getCurrentInstance, reactive } from "vue";
 import "vant/lib/index.css";
 import QRCode from "qrcode";
 
@@ -26,6 +26,10 @@ import { useRouter } from "vue-router";
 
 const selectedItems = ref([]);
 const filterXlsmData = ref([]);
+const codePage = ref(1);
+const codePageSize = 20;
+const hasMoreCodes = ref(false);
+const loadingMore = ref(false);
 const showDialogPassWord = ref(false);
 function formatDate_log(dateStr) {
   const date = new Date(dateStr);
@@ -64,19 +68,41 @@ const deleteItem = (index) => {
     queryData();
   });
 };
-async function queryData() {
+async function queryData(page = 1) {
+  if (page === 1) {
+    codePage.value = 1;
+    hasMoreCodes.value = false;
+    loadingMore.value = false;
+  }
   const params = new URLSearchParams();
   params.append("method", "queryCode");
-  const toast1 = showLoadingToast({
-    duration: 0,
-    message: "加载中...",
-  });
+  params.append("page", page);
+  params.append("pageSize", codePageSize);
+  const toast1 =
+    page === 1
+      ? showLoadingToast({
+          duration: 0,
+          message: "加载中...",
+        })
+      : null;
   const response = await axios.post("scans/", params);
-  toast1.close();
+  toast1?.close();
 
-  filterXlsmData.value = response.data;
+  const pageData = response.data?.status === "ok" ? response.data.data || [] : [];
+  filterXlsmData.value = page === 1 ? pageData : [...filterXlsmData.value, ...pageData];
+  codePage.value = page;
+  hasMoreCodes.value = Boolean(response.data?.hasMore);
   console.log("filterXlsmData: ", filterXlsmData.value);
 }
+
+const loadMoreCodes = async () => {
+  if (!hasMoreCodes.value) {
+    loadingMore.value = false;
+    return;
+  }
+  await queryData(codePage.value + 1);
+  loadingMore.value = false;
+};
 const handlePassword = (pwd) => {
   // console.log("用户输入的密码是：", pwd);
   if (pwd == "ss654321") {
@@ -96,36 +122,15 @@ const qrDataUrl = ref("");
 const codeValue = ref("");
 const showMachineCode = ref(false);
 const generateCode = (index) => {
-  console.log(filterXlsmData.value[index]);
-  if (filterXlsmData.value[index]["type"] == "扫码书") {
-    codeValue.value = filterXlsmData.value[index]["code"];
-    let url =
-      "http://www.tianjinwords.top:8085/MachineCodeQRCode/?param=" +
-      codeValue.value;
-    // let url = "http://localhost:5173/MachineCodeQRCode/?param=abc123XYZ";
-    qrUrl.value = url;
-    showMachineCode.value = true;
-    console.log("qrUrl: ", qrUrl.value);
-
-    QRCode.toDataURL(qrUrl.value, { width: 200 }, (err, url) => {
-      qrDataUrl.value = url;
-    });
-  }
-  if (filterXlsmData.value[index]["type"] == "跟读") {
-    const codeText = filterXlsmData.value[index]["code"];
-    // 使用兼容性更好的剪贴板复制方法
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      // 现代浏览器 API
-      navigator.clipboard.writeText(codeText).then(() => {
-        showToast("已复制到剪贴板");
-      }).catch(() => {
-        // 降级方案：使用传统方法
-        fallbackCopy(codeText);
-      });
-    } else {
-      // 降级方案
+  const codeText = filterXlsmData.value[index]["code"];
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(codeText).then(() => {
+      showToast("已复制到剪贴板");
+    }).catch(() => {
       fallbackCopy(codeText);
-    }
+    });
+  } else {
+    fallbackCopy(codeText);
   }
 };
 
@@ -171,6 +176,7 @@ const saveImage = () => {
 // 生成新扫码书code
 const showGenerateCode = ref(false);
 const valueNewCode = ref("");
+const scanCodeLevel = ref("高中");
 function generateRandomCode(length = 12) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
@@ -188,7 +194,7 @@ const submitNewCode = async () => {
   }
   showDialog({
     title: "生成新code",
-    message: `是否确定生成扫码书机器码 ${valueNewCode.value}`,
+    message: `是否确定生成${scanCodeLevel.value}扫码书机器码 ${valueNewCode.value}`,
     theme: "round-button",
   }).then(async () => {
     const toast1 = showLoadingToast({
@@ -198,12 +204,14 @@ const submitNewCode = async () => {
     const params = new URLSearchParams();
     params.append("method", "generateNewCode");
     params.append("valueCode", valueNewCode.value);
+    params.append("level", scanCodeLevel.value);
     const response = await axios.post("scans/", params);
     // console.log("response: ", response);
     toast1.close();
     if (response.data.status == "ok") {
       showSuccessToast(response.data.message);
       showGenerateCode.value = false;
+      valueNewCode.value = "";
       queryData();
     } else if (response.data.status == "error") {
       showFailToast(response.data.message);
@@ -213,6 +221,7 @@ const submitNewCode = async () => {
 
 // 生成新跟读code
 const valueNewCodeFollow = ref("");
+const followCodeLevel = ref("高中");
 function generateRandomCodeFollow(length = 12) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
@@ -230,7 +239,7 @@ const submitNewCodeFollow = async () => {
   }
   showDialog({
     title: "生成新跟读code",
-    message: `是否确定生成跟读机器码 ${valueNewCodeFollow.value}`,
+    message: `是否确定生成${followCodeLevel.value}跟读机器码 ${valueNewCodeFollow.value}`,
     theme: "round-button",
   }).then(async () => {
     const toast1 = showLoadingToast({
@@ -240,12 +249,14 @@ const submitNewCodeFollow = async () => {
     const params = new URLSearchParams();
     params.append("method", "generateNewCodeFollow");
     params.append("valueCode", valueNewCodeFollow.value);
+    params.append("level", followCodeLevel.value);
     const response = await axios.post("scans/", params);
     console.log("response: ", response);
     toast1.close();
     if (response.data.status == "ok") {
       showSuccessToast(response.data.message);
       showGenerateCode.value = false;
+      valueNewCodeFollow.value = "";
       queryData();
     } else if (response.data.status == "error") {
       showFailToast(response.data.message);
@@ -331,54 +342,70 @@ onMounted(() => {
     </van-tabbar>
 
     <!-- 数据列表 -->
-    <van-cell-group style="margin-bottom: 80px">
-      <van-swipe-cell
-        v-for="(item, index) in filterXlsmData"
-        :key="index"
-        stop-propagation
-        style="border-bottom: 1px solid #ebedf0"
-      >
-        <template #right>
-          <van-button
-            square
-            type="danger"
-            text="删除"
-            style="height: 100%"
-            @click="deleteItem(index)"
-          />
-          <van-button
-            square
-            type="success"
-            text="重置"
-            style="height: 100%"
-            @click="revisedBinCode(item)"
-          />
-        </template>
-        <van-cell
-          :title="item.code"
-          style="padding-top: 0.5rem; padding-bottom: 0.5rem"
-          @click="generateCode(index)"
+    <van-list
+      v-model:loading="loadingMore"
+      :finished="!hasMoreCodes"
+      finished-text="已全部加载"
+      :immediate-check="false"
+      @load="loadMoreCodes"
+      style="margin-bottom: 80px"
+    >
+      <van-cell-group>
+        <van-swipe-cell
+          v-for="(item, index) in filterXlsmData"
+          :key="item.nid || index"
+          stop-propagation
+          style="border-bottom: 1px solid #ebedf0"
         >
-          <pre>{{ item.is_used }}</pre>
-              <template #label>
-      <span class="custom-label">{{ `${formatDate_log(item.created_at)}  ${item.type}` }}</span>
-    </template>
-        </van-cell>
-      </van-swipe-cell>
-    </van-cell-group>
+          <template #right>
+            <van-button
+              square
+              type="danger"
+              text="删除"
+              style="height: 100%"
+              @click="deleteItem(index)"
+            />
+            <van-button
+              square
+              type="success"
+              text="重置"
+              style="height: 100%"
+              @click="revisedBinCode(item)"
+            />
+          </template>
+          <van-cell
+            :title="item.code"
+            style="padding-top: 0.5rem; padding-bottom: 0.5rem"
+            @click="generateCode(index)"
+          >
+            <pre>{{ item.is_used }}</pre>
+            <template #label>
+              <span
+                class="custom-label"
+                :class="{ 'custom-label-long': String(item.type || '').length > 5 }"
+              >{{ `${formatDate_log(item.created_at)}  ${item.type}` }}</span>
+            </template>
+          </van-cell>
+        </van-swipe-cell>
+      </van-cell-group>
+    </van-list>
 
     <!-- 生成新code -->
     <van-popup
       closeable
       v-model:show="showGenerateCode"
       position="bottom"
-      :style="{ height: '55%' }"
+      :style="{ height: '85%' }"
       round
     >
       <div style="font-size: 18px; font-weight: 700; margin: 1rem">
         生成扫码书code
       </div>
       <van-cell-group inset>
+        <van-radio-group v-model="scanCodeLevel" direction="horizontal" style="padding: 0.75rem 0">
+          <van-radio name="高中">高中</van-radio>
+          <van-radio name="初中">初中</van-radio>
+        </van-radio-group>
         <van-cell
           title="Code"
           :value="valueNewCode || '点击生成按钮'"
@@ -402,6 +429,10 @@ onMounted(() => {
         生成跟读code
       </div>
       <van-cell-group inset>
+        <van-radio-group v-model="followCodeLevel" direction="horizontal" style="padding: 0.75rem 0">
+          <van-radio name="高中">高中</van-radio>
+          <van-radio name="初中">初中</van-radio>
+        </van-radio-group>
         <van-cell
           title="Code"
           :value="valueNewCodeFollow || '点击生成按钮'"
@@ -470,6 +501,26 @@ html {
   padding: 10px 20px;
   margin: 10px auto;
   width: calc(90% - 40px);
+}
+
+.van-cell__title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.van-cell__title,
+.custom-label {
+  white-space: nowrap;
+}
+
+.van-cell__value {
+  flex: 0 0 auto;
+}
+
+.custom-label-long {
+  min-width: 220px;
 }
 
 .bold-title2 div {
@@ -608,4 +659,3 @@ html {
   display: inline-block; /* 确保 span 元素可以应用宽度 */
 }
 </style>
-

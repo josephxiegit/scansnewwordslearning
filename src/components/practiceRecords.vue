@@ -13,6 +13,7 @@ const username = ref("");
 const showMistakes = ref(false);
 const activeRecord = ref(null);
 const focusedPageIndex = ref(0);
+const currentTitle = ref("");
 
 const getStoredUser = () => {
   try {
@@ -24,12 +25,42 @@ const getStoredUser = () => {
   }
 };
 
+const isJuniorTitle = (title) =>
+  String(title || "").includes("天津外研社新教材初中");
+
+const isCurrentJuniorTitle = computed(() => {
+  if (isJuniorTitle(currentTitle.value)) return true;
+  return records.value.some((item) => isJuniorTitle(item?.title));
+});
+
+const totalPages = computed(() => (isCurrentJuniorTitle.value ? 74 : 159));
+
+const visibleRecords = computed(() =>
+  records.value.filter((item) => Number(item?.page_index || 0) <= totalPages.value)
+);
+
 const practicedCount = computed(
-  () => records.value.filter((item) => item.accuracy_text).length
+  () => visibleRecords.value.filter((item) => item.accuracy_text).length
 );
 
 const isPerfectRecord = (item) =>
   item.accuracy_text && Number(item.correct_count) === Number(item.total_count);
+
+const getPageLabel = (pageIndex) => {
+  if (!pageIndex) return "";
+  const page = Math.ceil(pageIndex / 2);
+  const side = pageIndex % 2 === 1 ? 1 : 2;
+  return `${page}-${side}`;
+};
+
+const getRecordPageLabel = (item) => {
+  const rawTitle = String(item?.title || currentTitle.value || "");
+  const pageLabel = item?.page_label || getPageLabel(Number(item?.page_index || 0));
+  if (isJuniorTitle(rawTitle) || isCurrentJuniorTitle.value) {
+    return pageLabel ? `初中词汇${pageLabel}` : "初中词汇";
+  }
+  return pageLabel;
+};
 
 const getTargetPageIndex = () => {
   const queryIndex = Number(route.query.pageIndex || 0);
@@ -82,6 +113,7 @@ const queryPracticeRecords = async () => {
   }
 
   username.value = user.username;
+  currentTitle.value = route.query.title || history.state?.title || "";
   const toast = showLoadingToast({
     duration: 0,
     message: "加载中...",
@@ -90,6 +122,7 @@ const queryPracticeRecords = async () => {
   const params = new URLSearchParams();
   params.append("method", "queryScanLearningPracticeGrid");
   params.append("username", user.username);
+  params.append("title", currentTitle.value);
 
   try {
     const response = await axios.post("scans/", params);
@@ -118,7 +151,7 @@ const openMistakes = (item) => {
   if (!item.accuracy_text) return;
   if (isPerfectRecord(item)) {
     showDialog({
-      title: `${item.page_label} 全对`,
+      title: `${getRecordPageLabel(item)} 全对`,
       message: "太棒了，这一页全对！继续保持这个节奏。",
       theme: "round-button",
     });
@@ -145,7 +178,7 @@ onMounted(() => {
 
       <div class="records-summary">
         <div>
-          <div class="summary-number">{{ practicedCount }}/159</div>
+          <div class="summary-number">{{ practicedCount }}/{{ totalPages }}</div>
           <div class="summary-label">已点击页码</div>
         </div>
         <van-button size="small" type="primary" plain @click="queryPracticeRecords">
@@ -156,7 +189,7 @@ onMounted(() => {
 
     <div class="records-grid">
       <div
-        v-for="item in records"
+        v-for="item in visibleRecords"
         :key="item.page_index"
         class="record-cell"
         :class="{
@@ -167,9 +200,9 @@ onMounted(() => {
         :data-page-index="item.page_index"
         @click="openMistakes(item)"
       >
-        <div class="page-label">{{ item.page_label }}</div>
-        <div class="accuracy-text">
-          {{ item.accuracy_text || "未点击" }}
+        <div class="page-label">{{ getRecordPageLabel(item) }}</div>
+        <div v-if="item.accuracy_text" class="accuracy-text">
+          {{ item.accuracy_text }}
         </div>
       </div>
     </div>
@@ -183,7 +216,7 @@ onMounted(() => {
       <div class="mistake-panel">
         <div class="mistake-header">
           <div>
-            <div class="mistake-title">{{ activeRecord?.page_label }}</div>
+            <div class="mistake-title">{{ getRecordPageLabel(activeRecord) }}</div>
             <div class="mistake-subtitle">
               最近一次正确率 {{ activeRecord?.accuracy_text || "" }}
             </div>
@@ -264,6 +297,7 @@ onMounted(() => {
   text-align: center;
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
   box-sizing: border-box;
   cursor: pointer;

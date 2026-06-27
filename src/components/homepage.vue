@@ -52,7 +52,8 @@ const firstRoundMistakesList = ref([]);
 const originalTotalCount = ref(0);
 const displayTitle = ref("");
 const passwordErrorCount = ref(0);
-const progressStorageKey = "scan_learning_homepage_progress";
+const getProgressStorageKey = (title = initialData.value?.title) =>
+  `scan_learning_homepage_progress_${getScanCodeLevel(title)}`;
 // 提交按钮
 const mergedData = ref([]);
 
@@ -92,10 +93,27 @@ const getPageLabel = (pageIndex) => {
 };
 
 const getHomepageTitle = (title) => {
+  const rawTitle = String(title || "");
+  if (rawTitle.includes("天津外研社新教材初中")) {
+    const pageIndex = getPageIndexFromTitle(rawTitle);
+    return pageIndex
+      ? `天津初中新词汇${getPageLabel(pageIndex)}`
+      : "天津初中新词汇";
+  }
+
   const pageIndex = getPageIndexFromTitle(title);
   if (!pageIndex) return title || "";
   return `天津3500词高考${getPageLabel(pageIndex)}`;
 };
+
+const getScanCodeLevel = (title = initialData.value?.title) =>
+  String(title || "").includes("天津外研社新教材初中") ? "初中" : "高中";
+
+const getScanCodeType = (title = initialData.value?.title) =>
+  `扫码书-${getScanCodeLevel(title)}`;
+
+const getScanBindCodeStorageKey = (title = initialData.value?.title) =>
+  `bindCode_${getScanCodeLevel(title)}`;
 
 const getCurrentProgressIdentity = () => ({
   nid: initialData.value?.nid,
@@ -140,12 +158,12 @@ const saveHomepageProgress = () => {
     finalMistakesList: finalMistakesList.value,
     originalChinese,
   };
-  localStorage.setItem(progressStorageKey, JSON.stringify(progress));
+  localStorage.setItem(getProgressStorageKey(), JSON.stringify(progress));
 };
 
 const restoreHomepageProgress = () => {
   try {
-    const rawProgress = localStorage.getItem(progressStorageKey);
+    const rawProgress = localStorage.getItem(getProgressStorageKey());
     if (!rawProgress) return false;
     const saved = JSON.parse(rawProgress);
     if (!isSameProgressIdentity(saved)) return false;
@@ -184,7 +202,7 @@ const restoreHomepageProgress = () => {
     });
     return true;
   } catch (error) {
-    localStorage.removeItem(progressStorageKey);
+    localStorage.removeItem(getProgressStorageKey());
     return false;
   }
 };
@@ -204,7 +222,16 @@ const confirmViewPracticeRecords = async () => {
       theme: "round-button",
     });
     saveHomepageProgress();
-    router.push({ path: "/practiceRecords", query: { from: "homepage" } });
+    router.push({
+      path: "/practiceRecords",
+      query: {
+        from: "homepage",
+        title: initialData.value?.title || "",
+      },
+      state: {
+        title: initialData.value?.title || "",
+      },
+    });
   } catch (error) {
     // 用户取消，无需处理
   }
@@ -796,7 +823,7 @@ const redirectPush = async () => {
   const pageIndex = await savePracticeResult();
   if (!pageIndex) return;
   await updateAccountItem();
-  localStorage.removeItem(progressStorageKey);
+  localStorage.removeItem(getProgressStorageKey());
   router.push({
     path: "/complete",
     state: {
@@ -804,6 +831,7 @@ const redirectPush = async () => {
       accuracyText: accuracyText.value,
       timeDifference: timeDifference.value,
       pageIndex,
+      title: initialData.value.title,
     },
   });
 };
@@ -972,6 +1000,7 @@ const newCode = async () => {
       fingerprintHash,
       components,
       bindCode: noSpaceStr,
+      type: getScanCodeType(),
     });
 
     console.log("status:", response.data.status);
@@ -980,10 +1009,12 @@ const newCode = async () => {
     if (response.data.status === "ok") {
       showCodeInput.value = false;
       showSuccessToast("验证成功");
+      localStorage.setItem(getScanBindCodeStorageKey(), bindCode.value);
       localStorage.setItem("bindCode", bindCode.value);
       initData();
     } 
     if (response.data.status === false) {
+      localStorage.removeItem(getScanBindCodeStorageKey());
       localStorage.removeItem("bindCode");
       localStorage.removeItem("client_id");
       showDialog({
@@ -995,6 +1026,7 @@ const newCode = async () => {
       });
     }
     if (response.data.status === "forbidden") {
+      localStorage.removeItem(getScanBindCodeStorageKey());
       localStorage.removeItem("bindCode");
       localStorage.removeItem("client_id");
       showDialog({
@@ -1181,7 +1213,12 @@ onMounted(async () => {
   // }
 
   // 测试机器码
-  // http://localhost:5173/homepage?param=1748931148
+  // 高考3500词汇
+  // http://localhost:5174/homepage?param=1748931148
+  // http://localhost:5174/homepage?param=1762917109
+  // 初中新
+  // http://localhost:5174/homepage?param=1782269503
+  // http://localhost:5174/homepage?param=1782269477
   const toast1 = showLoadingToast({
     duration: 0,
     message: "加载中...",
@@ -1214,8 +1251,11 @@ onMounted(async () => {
   // synonymsOptions.value = JSON.parse(initialData.value.synonyms).slice(0, 3);
   // initialData.value.title = "天津卷高等学校招生3500词汇";
   // 普通高等学校招生全国统一考试（天津卷）英语常用词词汇手册
-  if (initialData.value.title.includes("天津卷高等学校招生3500词汇")) {
-    if (!localStorage.getItem("client_id")) {
+  if (initialData.value.title.includes("天津卷高等学校招生3500词汇") || initialData.value.title.includes("天津外研社新教材初中")){
+    const storedBindCode =
+      localStorage.getItem(getScanBindCodeStorageKey()) ||
+      (getScanCodeLevel() === "高中" ? localStorage.getItem("bindCode") : "");
+    if (!localStorage.getItem("client_id") || !storedBindCode) {
       // 录入机器码
       showCodeInput.value = true;
       return;
@@ -1227,7 +1267,7 @@ onMounted(async () => {
       });
 
       const clientId = localStorage.getItem("client_id"); // 获得保存的uuid
-      const bindCode = localStorage.getItem("bindCode"); // 获得保存的bindCode
+      const bindCode = storedBindCode; // 获得保存的bindCode
       const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
       const fingerprintHash = deviceFingerprint.visitorId;
       const components = Object.fromEntries(
@@ -1247,7 +1287,7 @@ onMounted(async () => {
           fingerprintHash,
           components,
           bindCode,
-          type: "扫码书",
+          type: getScanCodeType(),
         });
         console.log("status: ", response.data.status);
         console.log("message: ", response.data.message);
@@ -1256,11 +1296,14 @@ onMounted(async () => {
         toast1.close();
         // 验证成功
         if (response.data.status === "ok") {
+          localStorage.setItem(getScanBindCodeStorageKey(), bindCode);
+          localStorage.setItem("bindCode", bindCode);
           initData();
         }
 
         // 验证失败
         if (response.data.status === "forbidden") {
+          localStorage.removeItem(getScanBindCodeStorageKey());
           localStorage.removeItem("bindCode");
           localStorage.removeItem("client_id");
           showDialog({
@@ -1274,6 +1317,7 @@ onMounted(async () => {
 
         // 验证异常
         if (response.data.status === "false") {
+          localStorage.removeItem(getScanBindCodeStorageKey());
           localStorage.removeItem("bindCode");
           localStorage.removeItem("client_id");
           showCodeInput.value = true;
@@ -1281,6 +1325,7 @@ onMounted(async () => {
         }
       } catch (err) {
         toast1.close(); // 保证无论成功失败都关闭 loading
+        localStorage.removeItem(getScanBindCodeStorageKey());
         localStorage.removeItem("bindCode");
         localStorage.removeItem("client_id");
         showCodeInput.value = true;

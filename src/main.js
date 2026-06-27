@@ -5,6 +5,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import axiosPlugin from './plugins/axios';
 import Homepage from './components/homepage.vue';
 import HomepageFollow from './components/homepageFollow.vue';
+import HomepageFollowJunior from './components/homepageFollowJunior.vue';
 import Complete from './components/complete.vue';
 import StudentAccountData from './components/studentAccountData.vue';
 import StudentAccountItems from './components/studentAccountItems.vue';
@@ -32,6 +33,11 @@ const routes = [
         path: '/homepageFollow',
         name: 'homepageFollow',
         component: HomepageFollow,
+    },
+    {
+        path: '/homepageFollowJunior',
+        name: 'homepageFollowJunior',
+        component: HomepageFollowJunior,
     },
     {
         path: '/complete',
