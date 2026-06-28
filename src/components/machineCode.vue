@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, getCurrentInstance, reactive } from "vue";
+import { ref, onMounted, getCurrentInstance, reactive, computed } from "vue";
 import "vant/lib/index.css";
 import QRCode from "qrcode";
 
@@ -25,11 +25,29 @@ import Global from "./Global.vue";
 import { useRouter } from "vue-router";
 
 const selectedItems = ref([]);
+const allCodeData = ref([]);
 const filterXlsmData = ref([]);
 const codePage = ref(1);
+const clientCodePage = ref(1);
 const codePageSize = 20;
 const hasMoreCodes = ref(false);
+const remoteHasMoreCodes = ref(false);
 const loadingMore = ref(false);
+const showFilterBox = ref(false);
+const filterForm = reactive({
+  codeKeyword: "",
+  codeKind: "全部",
+  level: "全部",
+  startDate: "",
+  endDate: "",
+});
+const activeFilters = reactive({
+  codeKeyword: "",
+  codeKind: "全部",
+  level: "全部",
+  startDate: "",
+  endDate: "",
+});
 const showDialogPassWord = ref(false);
 function formatDate_log(dateStr) {
   const date = new Date(dateStr);
@@ -47,16 +65,60 @@ function formatDate_log(dateStr) {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
-const deleteItem = (index) => {
-  // console.log('index: ', index);
+const isFilterActive = computed(
+  () =>
+    Boolean(activeFilters.codeKeyword.trim()) ||
+    activeFilters.codeKind !== "全部" ||
+    activeFilters.level !== "全部" ||
+    Boolean(activeFilters.startDate) ||
+    Boolean(activeFilters.endDate)
+);
+
+const filteredCodeData = computed(() => {
+  const keyword = activeFilters.codeKeyword.trim().toLowerCase();
+  const startDate = activeFilters.startDate
+    ? new Date(`${activeFilters.startDate}T00:00:00`)
+    : null;
+  const endDate = activeFilters.endDate
+    ? new Date(`${activeFilters.endDate}T23:59:59`)
+    : null;
+
+  return allCodeData.value.filter((item) => {
+    const code = String(item.code || "").toLowerCase();
+    const type = String(item.type || "");
+    const createdAt = item.created_at ? new Date(item.created_at) : null;
+
+    if (keyword && !code.includes(keyword)) return false;
+    if (activeFilters.codeKind !== "全部" && !type.includes(activeFilters.codeKind)) {
+      return false;
+    }
+    if (activeFilters.level !== "全部" && !type.includes(activeFilters.level)) {
+      return false;
+    }
+    if (startDate && (!createdAt || createdAt < startDate)) return false;
+    if (endDate && (!createdAt || createdAt > endDate)) return false;
+
+    return true;
+  });
+});
+
+const refreshDisplayedCodes = () => {
+  const pageEnd = clientCodePage.value * codePageSize;
+  filterXlsmData.value = filteredCodeData.value.slice(0, pageEnd);
+  hasMoreCodes.value = isFilterActive.value
+    ? filterXlsmData.value.length < filteredCodeData.value.length
+    : remoteHasMoreCodes.value;
+};
+
+const deleteItem = (item) => {
   showConfirmDialog({
-    title: `${filterXlsmData.value[index]["code"]}`,
+    title: `${item["code"]}`,
     message: `是否确认删除?`,
     theme: "round-button",
   }).then(async () => {
     const params = new URLSearchParams();
     params.append("method", "deleteCodeItem");
-    params.append("nid", filterXlsmData.value[index]["nid"]);
+    params.append("nid", item["nid"]);
     const toast1 = showLoadingToast({
       duration: 0,
       message: "删除中...",
@@ -65,13 +127,15 @@ const deleteItem = (index) => {
     toast1.close();
     showToast("删除成功");
     console.log(response.data);
-    queryData();
+    await reloadCodeData();
   });
 };
-async function queryData(page = 1) {
+async function queryData(page = 1, { silent = false } = {}) {
   if (page === 1) {
     codePage.value = 1;
+    clientCodePage.value = 1;
     hasMoreCodes.value = false;
+    remoteHasMoreCodes.value = false;
     loadingMore.value = false;
   }
   const params = new URLSearchParams();
@@ -79,7 +143,7 @@ async function queryData(page = 1) {
   params.append("page", page);
   params.append("pageSize", codePageSize);
   const toast1 =
-    page === 1
+    page === 1 && !silent
       ? showLoadingToast({
           duration: 0,
           message: "加载中...",
@@ -89,19 +153,77 @@ async function queryData(page = 1) {
   toast1?.close();
 
   const pageData = response.data?.status === "ok" ? response.data.data || [] : [];
-  filterXlsmData.value = page === 1 ? pageData : [...filterXlsmData.value, ...pageData];
+  allCodeData.value = page === 1 ? pageData : [...allCodeData.value, ...pageData];
   codePage.value = page;
-  hasMoreCodes.value = Boolean(response.data?.hasMore);
+  clientCodePage.value = page;
+  remoteHasMoreCodes.value = Boolean(response.data?.hasMore);
+  refreshDisplayedCodes();
   console.log("filterXlsmData: ", filterXlsmData.value);
 }
 
+const loadAllCodePages = async () => {
+  if (!allCodeData.value.length) {
+    await queryData(1, { silent: true });
+  }
+  while (remoteHasMoreCodes.value) {
+    await queryData(codePage.value + 1, { silent: true });
+  }
+};
+
 const loadMoreCodes = async () => {
-  if (!hasMoreCodes.value) {
+  if (isFilterActive.value) {
+    if (!hasMoreCodes.value) {
+      loadingMore.value = false;
+      return;
+    }
+    clientCodePage.value += 1;
+    refreshDisplayedCodes();
+    loadingMore.value = false;
+    return;
+  }
+
+  if (!remoteHasMoreCodes.value) {
     loadingMore.value = false;
     return;
   }
   await queryData(codePage.value + 1);
   loadingMore.value = false;
+};
+
+const applyFilters = async () => {
+  Object.assign(activeFilters, { ...filterForm });
+  const toast1 = showLoadingToast({
+    duration: 0,
+    message: "筛选中...",
+  });
+  await loadAllCodePages();
+  clientCodePage.value = 1;
+  refreshDisplayedCodes();
+  toast1.close();
+  showFilterBox.value = false;
+};
+
+const resetFilters = () => {
+  Object.assign(filterForm, {
+    codeKeyword: "",
+    codeKind: "全部",
+    level: "全部",
+    startDate: "",
+    endDate: "",
+  });
+  Object.assign(activeFilters, { ...filterForm });
+  clientCodePage.value = codePage.value;
+  refreshDisplayedCodes();
+  showFilterBox.value = false;
+};
+
+const reloadCodeData = async () => {
+  await queryData(1);
+  if (isFilterActive.value) {
+    await loadAllCodePages();
+    clientCodePage.value = 1;
+    refreshDisplayedCodes();
+  }
 };
 const handlePassword = (pwd) => {
   // console.log("用户输入的密码是：", pwd);
@@ -121,8 +243,8 @@ const qrUrl = ref("");
 const qrDataUrl = ref("");
 const codeValue = ref("");
 const showMachineCode = ref(false);
-const generateCode = (index) => {
-  const codeText = filterXlsmData.value[index]["code"];
+const generateCode = (item) => {
+  const codeText = item["code"];
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(codeText).then(() => {
       showToast("已复制到剪贴板");
@@ -212,7 +334,7 @@ const submitNewCode = async () => {
       showSuccessToast(response.data.message);
       showGenerateCode.value = false;
       valueNewCode.value = "";
-      queryData();
+      reloadCodeData();
     } else if (response.data.status == "error") {
       showFailToast(response.data.message);
     }
@@ -257,7 +379,7 @@ const submitNewCodeFollow = async () => {
       showSuccessToast(response.data.message);
       showGenerateCode.value = false;
       valueNewCodeFollow.value = "";
-      queryData();
+      reloadCodeData();
     } else if (response.data.status == "error") {
       showFailToast(response.data.message);
     }
@@ -282,7 +404,7 @@ const revisedBinCode = (item) => {
     const response = await axios.post("scans/", params);
     toast1.close();
     console.log(response.data);
-    await queryData();
+    await reloadCodeData();
     showSuccessToast("重置成功");
   });
 };
@@ -306,7 +428,9 @@ onMounted(() => {
       <van-nav-bar
         title="机器码"
         @click-left="showGenerateCode = true"
+        @click-right="showFilterBox = true"
         left-text="新生成"
+        right-text="筛选"
       >
       </van-nav-bar>
     </div>
@@ -342,6 +466,12 @@ onMounted(() => {
     </van-tabbar>
 
     <!-- 数据列表 -->
+    <div v-if="isFilterActive" class="filter-summary">
+      已筛选 {{ filteredCodeData.length }} 条
+      <van-button size="mini" plain type="primary" @click="resetFilters">
+        清空
+      </van-button>
+    </div>
     <van-list
       v-model:loading="loadingMore"
       :finished="!hasMoreCodes"
@@ -363,7 +493,7 @@ onMounted(() => {
               type="danger"
               text="删除"
               style="height: 100%"
-              @click="deleteItem(index)"
+              @click="deleteItem(item)"
             />
             <van-button
               square
@@ -376,7 +506,7 @@ onMounted(() => {
           <van-cell
             :title="item.code"
             style="padding-top: 0.5rem; padding-bottom: 0.5rem"
-            @click="generateCode(index)"
+            @click="generateCode(item)"
           >
             <pre>{{ item.is_used }}</pre>
             <template #label>
@@ -389,6 +519,71 @@ onMounted(() => {
         </van-swipe-cell>
       </van-cell-group>
     </van-list>
+
+    <!-- 筛选 -->
+    <van-popup
+      closeable
+      v-model:show="showFilterBox"
+      position="bottom"
+      :style="{ height: '70%' }"
+      round
+    >
+      <div class="filter-panel">
+        <div class="filter-title">筛选机器码</div>
+        <van-cell-group inset>
+          <van-field
+            v-model="filterForm.codeKeyword"
+            label="机器码"
+            placeholder="输入机器码关键字"
+            clearable
+          />
+          <van-field label="日期范围" readonly>
+            <template #input>
+              <div class="date-range-fields">
+                <input
+                  v-model="filterForm.startDate"
+                  class="date-input"
+                  type="date"
+                />
+                <span class="date-separator">至</span>
+                <input
+                  v-model="filterForm.endDate"
+                  class="date-input"
+                  type="date"
+                />
+              </div>
+            </template>
+          </van-field>
+          <van-field label="类型" readonly>
+            <template #input>
+              <van-radio-group v-model="filterForm.codeKind" direction="horizontal">
+                <van-radio name="全部">全部</van-radio>
+                <van-radio name="扫码书">扫码书</van-radio>
+                <van-radio name="跟读">跟读</van-radio>
+              </van-radio-group>
+            </template>
+          </van-field>
+          <van-field label="阶段" readonly>
+            <template #input>
+              <van-radio-group v-model="filterForm.level" direction="horizontal">
+                <van-radio name="全部">全部</van-radio>
+                <van-radio name="高考">高考</van-radio>
+                <van-radio name="高中">高中</van-radio>
+                <van-radio name="初中">初中</van-radio>
+              </van-radio-group>
+            </template>
+          </van-field>
+        </van-cell-group>
+        <div class="filter-actions">
+          <van-button block plain type="primary" @click="resetFilters">
+            重置
+          </van-button>
+          <van-button block type="primary" @click="applyFilters">
+            确定
+          </van-button>
+        </div>
+      </div>
+    </van-popup>
 
     <!-- 生成新code -->
     <van-popup
@@ -549,6 +744,63 @@ html {
   position: sticky;
   top: 0;
   z-index: 100;
+}
+.filter-summary {
+  position: sticky;
+  top: 46px;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  color: #323233;
+  font-size: 14px;
+  background: #fff;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.filter-panel {
+  padding: 16px 0 24px;
+}
+
+.filter-title {
+  margin: 0 16px 12px;
+  color: #323233;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.date-range-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.date-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #dcdee0;
+  border-radius: 4px;
+  padding: 6px 4px;
+  color: #323233;
+  font-size: 13px;
+  background: #fff;
+}
+
+.date-separator {
+  color: #969799;
+  white-space: nowrap;
+}
+
+.filter-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px;
 }
 .nav-bar-right {
   display: flex;
