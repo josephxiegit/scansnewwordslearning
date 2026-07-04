@@ -33,7 +33,7 @@ const isCurrentJuniorTitle = computed(() => {
   return records.value.some((item) => isJuniorTitle(item?.title));
 });
 
-const totalPages = computed(() => (isCurrentJuniorTitle.value ? 74 : 159));
+const totalPages = computed(() => (isCurrentJuniorTitle.value ? 79 : 159));
 
 const visibleRecords = computed(() =>
   records.value.filter((item) => Number(item?.page_index || 0) <= totalPages.value)
