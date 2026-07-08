@@ -36,6 +36,12 @@ const wordsList = ref([]);
 const originalWordsList = ref([]); // 保存原始单词列表
 const isShuffled = ref(false); // 标记是否为乱序状态
 const showWordsList = ref(false);
+const showChinese = ref(false);
+const showWrongWordsBook = ref(false);
+const wrongWordsList = ref([]);
+const wrongWordsShowChinese = ref(false);
+const wrongWordsLoading = ref(false);
+const expandedWrongWordKeys = ref(new Set());
 const currentEpisode = ref(0);
 const currentPlayingWord = ref(""); // 当前播放的单词，用于高亮显示
 const isContinuousReading = ref(false); // 连读状态
@@ -78,6 +84,7 @@ onMounted(() => {
 
   // 监听自定义事件，获取版本选择
   window.addEventListener("version-selected", handleVersionSelected);
+  window.addEventListener("wrong-book-selected", handleWrongBookSelected);
 });
 
 // 组件卸载时恢复原始标题
@@ -90,6 +97,7 @@ onUnmounted(() => {
 
   // 移除事件监听器
   window.removeEventListener("version-selected", handleVersionSelected);
+  window.removeEventListener("wrong-book-selected", handleWrongBookSelected);
 });
 
 // 处理版本选择事件
@@ -97,6 +105,10 @@ function handleVersionSelected(event) {
   bookVersion.value = event.detail.version;
   // 这里可以根据选择的版本执行相应的逻辑
   console.log("Selected book version:", bookVersion.value);
+}
+
+function handleWrongBookSelected() {
+  openWrongWordsBook();
 }
 
 // 返回主页方法
@@ -203,6 +215,31 @@ const continuousReadingButtonText = computed(() => {
   }
   return continuousReadingProgress.value ? "继续" : "连读";
 });
+
+const getChineseText = (item) => item?.chinese || item?.中文 || "";
+const getWrongWordKey = (item) => String(item?.word || "").trim().toLowerCase();
+const wrongWordKeys = computed(
+  () => new Set(wrongWordsList.value.map((item) => getWrongWordKey(item)))
+);
+
+const getStoredScanLearningUser = () => {
+  try {
+    const rawUser = localStorage.getItem("scan_learning_user");
+    return rawUser ? JSON.parse(rawUser) : null;
+  } catch (error) {
+    localStorage.removeItem("scan_learning_user");
+    return null;
+  }
+};
+
+const getFollowUserPayload = () => {
+  const storedUser = getStoredScanLearningUser();
+  return {
+    username: storedUser?.username || "",
+    clientId: localStorage.getItem("client_id") || "",
+    bindCode: localStorage.getItem("bindCode") || "",
+  };
+};
 
 const resetContinuousReadingProgress = () => {
   continuousReadingProgress.value = null;
@@ -868,6 +905,131 @@ async function queryData(page) {
   return response.data;
 }
 
+const queryWrongWords = async () => {
+  const userPayload = getFollowUserPayload();
+  if (!userPayload.username && !userPayload.clientId && !userPayload.bindCode) {
+    showFailToast("请先录入机器码");
+    return;
+  }
+
+  wrongWordsLoading.value = true;
+  const params = new URLSearchParams();
+  params.append("method", "queryFollowWrongWords");
+  params.append("username", userPayload.username);
+  params.append("clientId", userPayload.clientId);
+  params.append("bindCode", userPayload.bindCode);
+
+  try {
+    const response = await axios.post("scans/", params);
+    if (response.data?.status !== "ok") {
+      showFailToast(response.data?.message || "错词本加载失败");
+      return;
+    }
+    wrongWordsList.value = response.data.data || [];
+  } catch (error) {
+    console.error("错词本加载失败:", error);
+    showFailToast("错词本加载失败");
+  } finally {
+    wrongWordsLoading.value = false;
+  }
+};
+
+const openWrongWordsBook = async () => {
+  showWrongWordsBook.value = true;
+  await queryWrongWords();
+};
+
+const addWrongWord = async (item) => {
+  const userPayload = getFollowUserPayload();
+  if (!userPayload.username && !userPayload.clientId && !userPayload.bindCode) {
+    showFailToast("请先录入机器码");
+    return;
+  }
+
+  const params = new URLSearchParams();
+  params.append("method", "addFollowWrongWord");
+  params.append("username", userPayload.username);
+  params.append("clientId", userPayload.clientId);
+  params.append("bindCode", userPayload.bindCode);
+  params.append("word", item.word);
+  params.append("chinese", getChineseText(item));
+  params.append("book_version", bookVersion.value);
+  params.append("book_page", item.book_page || currentEpisode.value || "");
+  params.append("original_page", item.original_page || "");
+  params.append("number", item.number || "");
+
+  try {
+    const response = await axios.post("scans/", params);
+    if (response.data?.status !== "ok") {
+      showFailToast(response.data?.message || "加入失败");
+      return;
+    }
+    showSuccessToast(response.data?.created ? "已加入错词本" : "错词本已有该词");
+    if (!wrongWordKeys.value.has(getWrongWordKey(item))) {
+      wrongWordsList.value.unshift(response.data.data);
+    }
+  } catch (error) {
+    console.error("加入错词本失败:", error);
+    showFailToast("加入失败");
+  }
+};
+
+const removeWrongWord = async (item) => {
+  const userPayload = getFollowUserPayload();
+  const params = new URLSearchParams();
+  params.append("method", "deleteFollowWrongWord");
+  params.append("username", userPayload.username);
+  params.append("clientId", userPayload.clientId);
+  params.append("bindCode", userPayload.bindCode);
+  params.append("word", item.word);
+
+  try {
+    const response = await axios.post("scans/", params);
+    if (response.data?.status !== "ok") {
+      showFailToast(response.data?.message || "移除失败");
+      return;
+    }
+    wrongWordsList.value = wrongWordsList.value.filter(
+      (wordItem) => getWrongWordKey(wordItem) !== getWrongWordKey(item)
+    );
+    const nextKeys = new Set(expandedWrongWordKeys.value);
+    nextKeys.delete(getWrongWordKey(item));
+    expandedWrongWordKeys.value = nextKeys;
+    showSuccessToast("已移除");
+  } catch (error) {
+    console.error("移除错词失败:", error);
+    showFailToast("移除失败");
+  }
+};
+
+const toggleWrongWord = (item) => {
+  if (wrongWordKeys.value.has(getWrongWordKey(item))) {
+    removeWrongWord(item);
+    return;
+  }
+
+  addWrongWord(item);
+};
+
+const isWrongWordChineseVisible = (item) =>
+  wrongWordsShowChinese.value || expandedWrongWordKeys.value.has(getWrongWordKey(item));
+
+const toggleAllWrongWordsChinese = () => {
+  wrongWordsShowChinese.value = !wrongWordsShowChinese.value;
+  expandedWrongWordKeys.value = new Set();
+};
+
+const toggleSingleWrongWordChinese = (item) => {
+  const wordKey = getWrongWordKey(item);
+  const nextKeys = new Set(expandedWrongWordKeys.value);
+  if (nextKeys.has(wordKey)) {
+    nextKeys.delete(wordKey);
+  } else {
+    nextKeys.add(wordKey);
+  }
+  expandedWrongWordKeys.value = nextKeys;
+};
+
 onMounted(async () => {
   showAnimationWelcome();
 
@@ -912,6 +1074,7 @@ onMounted(async () => {
       if (response.data.status === "ok") {
         localStorage.setItem("isTrialMode", "false");
         isTrialMode.value = false;
+        queryWrongWords();
         // handleEpisodeClick(1).finally(() => {
         //   panelheight.value = 559;
         // });
@@ -1076,7 +1239,86 @@ onMounted(async () => {
       <van-button type="success" round size="normal" @click="panelheight = 559">
         选页
       </van-button>
+      <van-button
+        :type="showChinese ? 'warning' : 'default'"
+        round
+        size="normal"
+        @click="showChinese = !showChinese"
+      >
+        {{ showChinese ? "隐藏中文" : "显示中文" }}
+      </van-button>
+      <van-button type="primary" round size="normal" @click="openWrongWordsBook">
+        错词本
+      </van-button>
     </div>
+
+    <van-popup
+      v-model:show="showWrongWordsBook"
+      position="right"
+      :style="{ width: '100%', height: '100%' }"
+    >
+      <div class="wrong-book-page">
+        <div class="wrong-book-header">
+          <van-button size="small" plain type="primary" @click="showWrongWordsBook = false">
+            返回
+          </van-button>
+          <h3>错词本</h3>
+          <van-button
+            size="small"
+            :type="wrongWordsShowChinese ? 'warning' : 'default'"
+            @click="toggleAllWrongWordsChinese"
+          >
+            {{ wrongWordsShowChinese ? "隐藏中文" : "显示中文" }}
+          </van-button>
+        </div>
+
+        <van-list
+          :loading="wrongWordsLoading"
+          :finished="true"
+          :finished-text="wrongWordsList.length ? '没有更多了' : ''"
+          class="wrong-book-list"
+        >
+          <van-cell-group v-if="wrongWordsList.length">
+            <van-cell
+              v-for="item in wrongWordsList"
+              :key="getWrongWordKey(item)"
+              :title="item.word"
+              :label="isWrongWordChineseVisible(item) ? getChineseText(item) : ''"
+              class="word-cell"
+              @click="playWordAudio(item.word)"
+            >
+              <template #left-icon>
+                <img
+                  src="../assets/speaker.png"
+                  style="width: 24px; height: 24px; margin-right: 8px"
+                  alt="发音图标"
+                />
+              </template>
+              <template #extra>
+                <div class="word-extra-actions">
+                  <van-button
+                    v-if="!wrongWordsShowChinese"
+                    size="mini"
+                    type="primary"
+                    plain
+                    @click.stop="toggleSingleWrongWordChinese(item)"
+                  >
+                    {{ expandedWrongWordKeys.has(getWrongWordKey(item)) ? "隐藏" : "中文" }}
+                  </van-button>
+                  <van-button size="mini" type="danger" @click.stop="removeWrongWord(item)">
+                    移除
+                  </van-button>
+                  <van-icon name="volume-o" size="20" color="#1989fa" />
+                </div>
+              </template>
+            </van-cell>
+          </van-cell-group>
+          <div v-else-if="!wrongWordsLoading" class="wrong-book-empty">
+            暂无错词
+          </div>
+        </van-list>
+      </div>
+    </van-popup>
 
     <!-- 浮动面板 -->
     <van-floating-panel
@@ -1219,7 +1461,7 @@ onMounted(async () => {
                 ? item.word
                 : `${item.number}. ${item.word}`
             "
-            :label="item.中文 || ''"
+            :label="showChinese ? getChineseText(item) : ''"
             value=""
             @click="playWordAudio(item.word)"
             style="cursor: pointer; margin-top: 10px;"
@@ -1236,7 +1478,16 @@ onMounted(async () => {
               />
             </template>
             <template #extra>
-              <van-icon name="volume-o" size="20" color="#1989fa" />
+              <div class="word-extra-actions">
+                <van-button
+                  size="mini"
+                  :type="wrongWordKeys.has(getWrongWordKey(item)) ? 'success' : 'default'"
+                  @click.stop="toggleWrongWord(item)"
+                >
+                  {{ wrongWordKeys.has(getWrongWordKey(item)) ? "已加" : "错词" }}
+                </van-button>
+                <van-icon name="volume-o" size="20" color="#1989fa" />
+              </div>
             </template>
           </van-cell>
         </van-cell-group>
@@ -1418,6 +1669,53 @@ body {
   white-space: nowrap;
 }
 
+.wrong-book-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  overflow: hidden;
+}
+
+.wrong-book-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.wrong-book-header h3 {
+  margin: 0;
+  font-size: 18px;
+  text-align: center;
+}
+
+.wrong-book-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 20px;
+}
+
+.wrong-book-empty {
+  padding: 48px 16px;
+  color: #969799;
+  font-size: 15px;
+  text-align: center;
+}
+
+.word-extra-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+
 @media (max-width: 420px) {
   .floating-read-controls {
     right: 10px;
@@ -1430,11 +1728,11 @@ body {
 .word-cell {
   position: relative;
   box-sizing: border-box;
-  height: 40px;
+  min-height: 40px;
   width: 100%;
   cursor: pointer;
   transition: all 0s !important; /* 禁用所有过渡效果 */
-  overflow: hidden; /* 防止内容溢出 */
+  overflow: visible;
   display: flex;
   align-items: center;
 }
@@ -1461,12 +1759,17 @@ body {
   font-weight: 500;
   color: #333;
   white-space: nowrap;
+  min-width: 0;
+  padding-right: 8px;
 }
 
 .word-cell :deep(.van-cell__label) {
   font-size: 14px;
   color: #666;
   margin-top: 4px;
-  white-space: nowrap;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 </style>

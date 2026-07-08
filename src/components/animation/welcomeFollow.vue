@@ -16,6 +16,7 @@
         <div class="encouragement-text">选择版本</div>
         <button class="version-button full-version-button" @click="selectFullVersion">原版书</button>
         <button class="version-button mini-version-button" @click="selectMiniVersion">精简版</button>
+        <button class="version-button wrong-book-button" @click="selectWrongBook">错词本</button>
         <div class="design-text">Designed by xie</div>
         <!-- <button class="close-button" @click="hide">跳过</button> -->
       </div>
@@ -66,6 +67,11 @@ function selectFullVersion() {
 function selectMiniVersion() {
   bookVersion.value = "mini";
   hide();
+}
+
+function selectWrongBook() {
+  hide();
+  window.dispatchEvent(new CustomEvent("wrong-book-selected"));
 }
 
 const methods = { show, hide };
@@ -188,11 +194,22 @@ onMounted(() => {
 .mini-version-button {
   background-color: #f7ba1e;
   color: white;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .mini-version-button:hover {
   background-color: #e6a400;
+  transform: scale(1.05);
+}
+
+.wrong-book-button {
+  background-color: #07c160;
+  color: white;
+  margin-bottom: 20px;
+}
+
+.wrong-book-button:hover {
+  background-color: #05a653;
   transform: scale(1.05);
 }
 

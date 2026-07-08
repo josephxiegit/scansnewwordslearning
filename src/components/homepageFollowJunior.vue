@@ -56,7 +56,7 @@ let originalTitle = "";
 // 当前页面的单元信息
 const currentUnit = ref("");
 
-const maxEpisode = 37;
+const maxEpisode = 40;
 
 // 组件挂载时设置浏览器标题
 onMounted(() => {
@@ -105,19 +105,19 @@ const episodesData = ref([
   [], // 1-10页
   [], // 11-20页
   [], // 21-30页
-  [], // 31-37页
+  [], // 31-40页
 ]);
 
 // 记录最后一次点击的页码
 const lastClickedEpisode = ref(null);
 
-// 生成页码数据：37页分4组
+// 生成页码数据：40页分4组
 const generateEpisodesData = () => {
   episodesData.value = [[], [], [], []];
   for (let i = 1; i <= 10; i++) episodesData.value[0].push(i);
   for (let i = 11; i <= 20; i++) episodesData.value[1].push(i);
   for (let i = 21; i <= 30; i++) episodesData.value[2].push(i);
-  for (let i = 31; i <= 37; i++) episodesData.value[3].push(i);
+  for (let i = 31; i <= 40; i++) episodesData.value[3].push(i);
 };
 
 // Base64转Blob函数
@@ -883,7 +883,7 @@ async function startVerification() {
           <van-cell
             v-for="(item, index) in wordsList"
             :key="index"
-            :title="`${index + 1}. ${item.word}`"
+            :title="`${item.nid || index + 1}. ${item.word}`"
             @click="playWordAudio(item.word)"
             style="cursor: pointer; margin-top: 10px;"
             :class="['word-cell', { 'word-active': currentPlayingWord === item.word }]"
