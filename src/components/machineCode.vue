@@ -442,9 +442,6 @@ onMounted(() => {
     <!-- 导航 -->
     <router-view />
     <van-tabbar route>
-      <van-tabbar-item icon="home-o" replace to="/homepage"
-        >主页</van-tabbar-item
-      >
       <van-tabbar-item icon="coupon-o" replace :to="{ path: '/xlsms' }"
         >xlsm</van-tabbar-item
       >
