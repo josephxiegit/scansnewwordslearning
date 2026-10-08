@@ -1,4 +1,7 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
+import { BOOK_EDITION, FULL_PAGE_COUNT, FOLLOW_CODE_TYPE, FOLLOW_BIND_KEY, FOLLOW_CLIENT_KEY } from '../bookEdition.js';
 import { ref, onMounted, onUnmounted, getCurrentInstance, watch, computed } from "vue";
 import "vant/lib/index.css";
 
@@ -9,6 +12,7 @@ defineProps({
 });
 import {
   showFailToast,
+  showToast,
   showLoadingToast,
   showConfirmDialog,
   showDialog,
@@ -71,13 +75,13 @@ onMounted(() => {
   // 保存原始标题
   originalTitle = document.title;
   // 设置新标题
-  document.title = "天津高考3500跟读发音";
+  document.title = BOOK_EDITION === 2027 ? "2027天津高考3500跟读发音" : "天津高考3500跟读发音";
   
   // 清空wordsList数组
   wordsList.value = [];
 
   // 检查本地存储是否有保存的书籍版本
-  const storedBookVersion = localStorage.getItem("bookVersion");
+  const storedBookVersion = editionStorage.getItem("bookVersion");
   if (storedBookVersion) {
     bookVersion.value = storedBookVersion;
   }
@@ -131,7 +135,7 @@ function goToNextPage() {
   stopContinuousReading(true);
   resetContinuousReadingProgress();
   // 根据版本确定最大页码
-  const maxEpisode = bookVersion.value === "full" ? 456 : 80;
+  const maxEpisode = bookVersion.value === "full" ? FULL_PAGE_COUNT : 80;
   if (currentEpisode.value < maxEpisode) {
     const nextEpisode = currentEpisode.value + 1;
     handleEpisodeClick(nextEpisode);
@@ -167,11 +171,11 @@ const generateEpisodesData = () => {
 
   if (bookVersion.value === "full") {
     // 原版书模式：每页50个单词，共9页（最后一页456-500范围，但实际只有456个单词）
-    const totalPages = 9; // 456个单词，每页50个，共9页
+    const totalPages = BOOK_EDITION === 2027 ? Math.ceil(FULL_PAGE_COUNT / 50) : 9;
     for (let i = 0; i < totalPages; i++) {
       const group = [];
       const start = i * 50 + 1;
-      const end = i === totalPages - 1 ? 456 : (i + 1) * 50;
+      const end = i === totalPages - 1 ? FULL_PAGE_COUNT : (i + 1) * 50;
       for (let j = start; j <= end; j++) {
         group.push(j);
       }
@@ -208,7 +212,7 @@ const base64ToBlob = (base64, mimeType) => {
   return new Blob([arrayBuffer], { type: mimeType });
 };
 
-const getMaxEpisode = () => (bookVersion.value === "full" ? 456 : 80);
+const getMaxEpisode = () => (bookVersion.value === "full" ? FULL_PAGE_COUNT : 80);
 const continuousReadingButtonText = computed(() => {
   if (isContinuousReading.value) {
     return "暂停";
@@ -224,10 +228,10 @@ const wrongWordKeys = computed(
 
 const getStoredScanLearningUser = () => {
   try {
-    const rawUser = localStorage.getItem("scan_learning_user");
+    const rawUser = editionStorage.getItem("scan_learning_user");
     return rawUser ? JSON.parse(rawUser) : null;
   } catch (error) {
-    localStorage.removeItem("scan_learning_user");
+    editionStorage.removeItem("scan_learning_user");
     return null;
   }
 };
@@ -236,8 +240,8 @@ const getFollowUserPayload = () => {
   const storedUser = getStoredScanLearningUser();
   return {
     username: storedUser?.username || "",
-    clientId: localStorage.getItem("client_id") || "",
-    bindCode: localStorage.getItem("bindCode") || "",
+    clientId: editionStorage.getItem(FOLLOW_CLIENT_KEY) || "",
+    bindCode: editionStorage.getItem(FOLLOW_BIND_KEY) || "",
   };
 };
 
@@ -295,9 +299,18 @@ const loadEpisodeData = async (episode, showAudioFailureDialog = true) => {
   params.append("method", "getAudioList");
   params.append("word_list", JSON.stringify(answerSheetProList));
 
-  const response = await axios.post("scans/", params);
+  let response;
+  try {
+    response = await axios.post("scans/", params);
+  } catch (error) {
+    if (BOOK_EDITION !== 2027) throw error;
+    console.warn("音频预加载暂不可用，保留词目并使用网络发音", error);
+    if (showAudioFailureDialog) {
+      showToast("音频预加载暂不可用，可点击单词重试发音");
+    }
+  }
 
-  if (response.data.success && response.data.audio_data) {
+  if (response?.data.success && response.data.audio_data) {
     // 成功的音频存进缓存
     Object.entries(response.data.audio_data).forEach(([word, obj]) => {
       try {
@@ -747,10 +760,10 @@ const handleEpisodeClick = async (episode, fromContinuousReading = false) => {
 const startTrialMode = () => {
   showCodeInput.value = false;
   isTrialMode.value = true;
-  localStorage.setItem("isTrialMode", "true");
+  editionStorage.setItem("isTrialMode", "true");
   // 设置试用模式为原版书模式
   bookVersion.value = "full";
-  localStorage.setItem("bookVersion", "full");
+  editionStorage.setItem("bookVersion", "full");
   handleEpisodeClick(1).finally(() => {
     panelheight.value = 559;
   });
@@ -798,12 +811,32 @@ watch(
 const showCodeInput = ref(false);
 const bindCode = ref("");
 const isTrialMode = ref(false); // 试用模式标志
+const normalizeMachineCode = (value) =>
+  String(value || "")
+    .replace(/\s/g, "")
+    .toUpperCase();
+const isInvalidBindStatus = (status) => status === false || status === "false";
+
+const getBookQrMachineCode = () => {
+  const query = new URLSearchParams(window.location.search);
+  if (query.get("source") !== "book-qr") return "";
+
+  const candidate = normalizeMachineCode(query.get("bindCode"));
+  return /^[A-Z0-9]{12}$/.test(candidate) ? candidate : "";
+};
+
 const newCode = async () => {
   console.log("NEWCODE");
-  if (!bindCode.value) {
+  const normalizedBindCode = normalizeMachineCode(bindCode.value);
+  if (!normalizedBindCode) {
     showFailToast("不能为空");
     return;
+  }
+  if (!/^[A-Z0-9]{12}$/.test(normalizedBindCode)) {
+    showFailToast("机器码应为 12 位字母或数字");
+    return;
   } else {
+    bindCode.value = normalizedBindCode;
     const toast1 = showLoadingToast({
       duration: 0,
       message: "验证中...",
@@ -822,8 +855,8 @@ const newCode = async () => {
       clientId,
       fingerprintHash,
       components,
-      bindCode: bindCode.value,
-      type: "跟读-高考",
+      bindCode: normalizedBindCode,
+      type: FOLLOW_CODE_TYPE,
     });
     console.log("status:", response.data.status);
     console.log("message: ", response.data.message);
@@ -833,15 +866,15 @@ const newCode = async () => {
       showCodeInput.value = false;
       showSuccessToast("验证成功");
 
-      localStorage.setItem("bindCode", bindCode.value);
-      localStorage.setItem("isTrialMode", "false");
+      editionStorage.setItem(FOLLOW_BIND_KEY, normalizedBindCode);
+      editionStorage.setItem("isTrialMode", "false");
       isTrialMode.value = false;
       queryData(1);
       panelheight.value = 259;
     }
-    if (response.data.status === false) {
-      localStorage.removeItem("bindCode");
-      localStorage.removeItem("client_id");
+    if (isInvalidBindStatus(response.data.status)) {
+      editionStorage.removeItem(FOLLOW_BIND_KEY);
+      editionStorage.removeItem(FOLLOW_CLIENT_KEY);
       showDialog({
         title: "机器码录入错误",
         message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -851,8 +884,8 @@ const newCode = async () => {
       });
     }
     if (response.data.status === "forbidden") {
-      localStorage.removeItem("bindCode");
-      localStorage.removeItem("client_id");
+      editionStorage.removeItem(FOLLOW_BIND_KEY);
+      editionStorage.removeItem(FOLLOW_CLIENT_KEY);
       showDialog({
         title: "机器码已作废",
         message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -880,10 +913,10 @@ function getUUID() {
 }
 
 const getOrCreateClientId = () => {
-  let clientId = localStorage.getItem("client_id");
+  let clientId = editionStorage.getItem(FOLLOW_CLIENT_KEY);
   if (!clientId) {
     clientId = getUUID();
-    localStorage.setItem("client_id", clientId);
+    editionStorage.setItem(FOLLOW_CLIENT_KEY, clientId);
   }
   return clientId;
 };
@@ -1032,10 +1065,14 @@ const toggleSingleWrongWordChinese = (item) => {
 
 onMounted(async () => {
   showAnimationWelcome();
+  const bookQrMachineCode = getBookQrMachineCode();
+  const storedClientId = editionStorage.getItem(FOLLOW_CLIENT_KEY);
+  const storedBindCode = editionStorage.getItem(FOLLOW_BIND_KEY);
 
   // 初始化数据
-  if (!localStorage.getItem("client_id")) {
-    console.log("没有client_id");
+  if (!storedClientId || !storedBindCode) {
+    console.log("没有完整的已绑定信息");
+    bindCode.value = bookQrMachineCode;
     showCodeInput.value = true;
     return;
   } else {
@@ -1045,8 +1082,8 @@ onMounted(async () => {
       message: "验证中...",
     });
 
-    const clientId = localStorage.getItem("client_id");
-    const bindCode = localStorage.getItem("bindCode");
+    const clientId = storedClientId;
+    const validatedBindCode = storedBindCode;
     const deviceFingerprint = await getStableFingerprint();
     const fingerprintHash = deviceFingerprint.visitorId;
     const components = Object.fromEntries(
@@ -1062,8 +1099,8 @@ onMounted(async () => {
         clientId,
         fingerprintHash,
         components,
-        bindCode,
-        type: "跟读-高考",
+        bindCode: validatedBindCode,
+        type: FOLLOW_CODE_TYPE,
       });
       console.log("status: ", response.data.status);
       console.log("message: ", response.data.message);
@@ -1072,7 +1109,7 @@ onMounted(async () => {
       toast1.close();
 
       if (response.data.status === "ok") {
-        localStorage.setItem("isTrialMode", "false");
+        editionStorage.setItem("isTrialMode", "false");
         isTrialMode.value = false;
         queryWrongWords();
         // handleEpisodeClick(1).finally(() => {
@@ -1082,8 +1119,8 @@ onMounted(async () => {
       }
 
       if (response.data.status === "forbidden") {
-        localStorage.removeItem("bindCode");
-        localStorage.removeItem("client_id");
+        editionStorage.removeItem(FOLLOW_BIND_KEY);
+        editionStorage.removeItem(FOLLOW_CLIENT_KEY);
         showDialog({
           title: "机器码已被其他机器绑定",
           message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -1093,22 +1130,24 @@ onMounted(async () => {
         });
       }
 
-      if (response.data.status === "false") {
-        localStorage.removeItem("bindCode");
-        localStorage.removeItem("client_id");
+      if (isInvalidBindStatus(response.data.status)) {
+        editionStorage.removeItem(FOLLOW_BIND_KEY);
+        editionStorage.removeItem(FOLLOW_CLIENT_KEY);
+        bindCode.value = bookQrMachineCode;
         showCodeInput.value = true;
         showFailToast("请再次录入");
       }
     } catch (err) {
       toast1.close();
-      localStorage.removeItem("bindCode");
-      localStorage.removeItem("client_id");
+      editionStorage.removeItem(FOLLOW_BIND_KEY);
+      editionStorage.removeItem(FOLLOW_CLIENT_KEY);
+      bindCode.value = bookQrMachineCode;
       showCodeInput.value = true;
       console.error("绑定异常:", err);
     }
 
     // 检查是否有试用模式标志
-    const trialMode = localStorage.getItem("isTrialMode");
+    const trialMode = editionStorage.getItem("isTrialMode");
     if (trialMode === "true") {
       isTrialMode.value = true;
       handleEpisodeClick(1).finally(() => {
@@ -1126,8 +1165,8 @@ onMounted(async () => {
         left-text="主页"
         :title="
           bookVersion === 'full'
-            ? '2026年天津3500原版发音跟读'
-            : '2026年天津3500精简版发音跟读'
+            ? `${BOOK_EDITION}年天津3500原版发音跟读`
+            : `${BOOK_EDITION}年天津3500精简版发音跟读`
         "
         @click-left="goToHomepage"
       ></van-nav-bar>

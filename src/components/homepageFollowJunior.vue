@@ -1,4 +1,6 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
 import { ref, onMounted, onUnmounted, getCurrentInstance, computed } from "vue";
 import "vant/lib/index.css";
 
@@ -561,7 +563,7 @@ async function queryData(page) {
 const startTrialMode = () => {
   showCodeInput.value = false;
   isTrialMode.value = true;
-  localStorage.setItem("isTrialMode_junior", "true");
+  editionStorage.setItem("isTrialMode_junior", "true");
 };
 
 // 录入机器码
@@ -589,13 +591,13 @@ const newCode = async () => {
   if (response.data.status === "ok") {
     showCodeInput.value = false;
     showSuccessToast("验证成功");
-    localStorage.setItem("bindCode_junior", bindCode.value);
-    localStorage.setItem("isTrialMode_junior", "false");
+    editionStorage.setItem("bindCode_junior", bindCode.value);
+    editionStorage.setItem("isTrialMode_junior", "false");
     isTrialMode.value = false;
   }
   if (response.data.status === false) {
-    localStorage.removeItem("bindCode_junior");
-    localStorage.removeItem("client_id_junior");
+    editionStorage.removeItem("bindCode_junior");
+    editionStorage.removeItem("client_id_junior");
     showDialog({
       title: "机器码录入错误",
       message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -603,8 +605,8 @@ const newCode = async () => {
     }).then(() => { window.location.reload(); });
   }
   if (response.data.status === "forbidden") {
-    localStorage.removeItem("bindCode_junior");
-    localStorage.removeItem("client_id_junior");
+    editionStorage.removeItem("bindCode_junior");
+    editionStorage.removeItem("client_id_junior");
     showDialog({
       title: "机器码已作废",
       message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -625,10 +627,10 @@ function getUUID() {
 }
 
 const getOrCreateClientId = () => {
-  let clientId = localStorage.getItem("client_id_junior");
+  let clientId = editionStorage.getItem("client_id_junior");
   if (!clientId) {
     clientId = getUUID();
-    localStorage.setItem("client_id_junior", clientId);
+    editionStorage.setItem("client_id_junior", clientId);
   }
   return clientId;
 };
@@ -641,15 +643,15 @@ const getStableFingerprint = async () => {
 
 // ========== 验证流程（欢迎页点击确定后触发） ==========
 async function startVerification() {
-  if (!localStorage.getItem("client_id_junior")) {
+  if (!editionStorage.getItem("client_id_junior")) {
     showCodeInput.value = true;
     return;
   }
 
   const toast1 = showLoadingToast({ duration: 0, message: "验证中..." });
 
-  const clientId = localStorage.getItem("client_id_junior");
-  const bindCode = localStorage.getItem("bindCode_junior");
+  const clientId = editionStorage.getItem("client_id_junior");
+  const bindCode = editionStorage.getItem("bindCode_junior");
   const deviceFingerprint = await getStableFingerprint();
   const fingerprintHash = deviceFingerprint.visitorId;
   const components = Object.fromEntries(
@@ -668,13 +670,13 @@ async function startVerification() {
     toast1.close();
 
     if (response.data.status === "ok") {
-      localStorage.setItem("isTrialMode_junior", "false");
+      editionStorage.setItem("isTrialMode_junior", "false");
       isTrialMode.value = false;
     }
 
     if (response.data.status === "forbidden") {
-      localStorage.removeItem("bindCode_junior");
-      localStorage.removeItem("client_id_junior");
+      editionStorage.removeItem("bindCode_junior");
+      editionStorage.removeItem("client_id_junior");
       showDialog({
         title: "机器码已被其他机器绑定",
         message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -683,21 +685,21 @@ async function startVerification() {
     }
 
     if (response.data.status === "false") {
-      localStorage.removeItem("bindCode_junior");
-      localStorage.removeItem("client_id_junior");
+      editionStorage.removeItem("bindCode_junior");
+      editionStorage.removeItem("client_id_junior");
       showCodeInput.value = true;
       showFailToast("请再次录入");
     }
   } catch (err) {
     toast1.close();
-    localStorage.removeItem("bindCode_junior");
-    localStorage.removeItem("client_id_junior");
+    editionStorage.removeItem("bindCode_junior");
+    editionStorage.removeItem("client_id_junior");
     showCodeInput.value = true;
     console.error("绑定异常:", err);
   }
 
   // 试用模式
-  const trialMode = localStorage.getItem("isTrialMode_junior");
+  const trialMode = editionStorage.getItem("isTrialMode_junior");
   if (trialMode === "true") {
     isTrialMode.value = true;
   }

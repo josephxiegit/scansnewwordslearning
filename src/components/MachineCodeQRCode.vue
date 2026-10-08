@@ -1,5 +1,7 @@
 <script setup>
+import { BOOK_EDITION, FIRST_LEARNING_PARAM, bookUrl } from '../bookEdition.js';
 import { onMounted, ref } from "vue";
+import axios from "axios";
 import {
   showFailToast,
   showToast,
@@ -15,20 +17,74 @@ import "vant/lib/index.css";
 
 // 复制函数
 const copyToClipboard = () => {
+  if (entryError.value) {
+    showFailToast(entryError.value);
+    return;
+  }
+  if (isResolving.value) {
+    showToast("正在确认学习入口，请稍候");
+    return;
+  }
   if (machineCode.value) {
-    navigator.clipboard.writeText(machineCode.value).then(() => {
-      showSuccessToast("机器码已复制");
-    });
+    navigator.clipboard
+      .writeText(machineCode.value)
+      .then(() => {
+        showSuccessToast("机器码已复制");
+        window.setTimeout(() => {
+          window.location.assign(UrltoDomain.value);
+        }, 600);
+      })
+      .catch(() => {
+        showFailToast("复制失败，请点击下方开始背诵");
+      });
   }
 };
 
 const machineCode = ref("");
-const UrltoDomain = ref("http://www.tianjinwords.top:8085/homepage/?param=1748931148");
-// const UrltoDomain = ref("http://localhost:5173/homepage?param=1748931148");
-onMounted(() => {
+const isResolving = ref(false);
+const entryError = ref('');
+const defaultLearningParam = FIRST_LEARNING_PARAM;
+const UrltoDomain = ref(BOOK_EDITION === 2027 ? '' : bookUrl(`/homepage/?param=${defaultLearningParam}`));
+
+const setLearningUrl = (learningParam) => {
+  UrltoDomain.value = bookUrl(`/homepage/?param=${learningParam}`);
+};
+
+const resolveLearningEntry = async () => {
+  if (!machineCode.value) return;
+
+  isResolving.value = true;
+  try {
+    const response = await axios.post("scans/", {
+      method: "resolveScanBookEntry",
+      code: machineCode.value,
+    });
+    if (response.data?.status === "ok" && response.data.learningParam &&
+        (BOOK_EDITION !== 2027 || response.data.edition === 2027)) {
+      setLearningUrl(response.data.learningParam);
+      return;
+    }
+  } catch (error) {
+    console.error("机器码学习入口查询失败:", error);
+  } finally {
+    isResolving.value = false;
+  }
+
+  // 查询暂不可用或历史记录未找到时，保持旧版高中入口，避免影响已印刷的
+  // 高中书二维码；初中机器码只在后台明确识别为初中后才会进入初中词汇。
+  if (BOOK_EDITION === 2027) {
+    entryError.value = '无法确认2027学习入口，请稍后重试或联系老师';
+    UrltoDomain.value = '';
+  } else {
+    setLearningUrl(defaultLearningParam);
+  }
+};
+
+onMounted(async () => {
   const query = new URLSearchParams(window.location.search);
-  machineCode.value = query.get("param") || "";
+  machineCode.value = (query.get("param") || "").trim().toUpperCase();
   console.log("machineCode: ", machineCode.value);
+  await resolveLearningEntry();
 });
 </script>
 
@@ -54,9 +110,10 @@ onMounted(() => {
 
     <!-- 按钮和提示跳转链接 -->
     <div class="action-row">
-      <a class="start-link" :href="UrltoDomain" target="_blank">
-        手动复制后，点击开始背诵
+      <a v-if="UrltoDomain" class="start-link" :href="UrltoDomain" :aria-busy="isResolving">
+        {{ isResolving ? "正在确认学习入口..." : "未自动跳转时，点击开始背诵" }}
       </a>
+      <span v-else>{{ entryError || '正在确认学习入口...' }}</span>
     </div>
   </div>
 </template>

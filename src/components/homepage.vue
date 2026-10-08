@@ -1,4 +1,7 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
+import { getScanType } from '../bookEdition.js';
 import { ref, onMounted, getCurrentInstance, reactive, nextTick } from "vue";
 import "vant/lib/index.css";
 defineProps({
@@ -59,10 +62,10 @@ const mergedData = ref([]);
 
 const getStoredScanLearningUser = () => {
   try {
-    const rawUser = localStorage.getItem("scan_learning_user");
+    const rawUser = editionStorage.getItem("scan_learning_user");
     return rawUser ? JSON.parse(rawUser) : null;
   } catch (error) {
-    localStorage.removeItem("scan_learning_user");
+    editionStorage.removeItem("scan_learning_user");
     return null;
   }
 };
@@ -110,7 +113,7 @@ const getScanCodeLevel = (title = initialData.value?.title) =>
   String(title || "").includes("天津外研社新教材初中") ? "初中" : "高中";
 
 const getScanCodeType = (title = initialData.value?.title) =>
-  `扫码书-${getScanCodeLevel(title)}`;
+  getScanType(getScanCodeLevel(title));
 
 const getScanBindCodeStorageKey = (title = initialData.value?.title) =>
   `bindCode_${getScanCodeLevel(title)}`;
@@ -158,12 +161,12 @@ const saveHomepageProgress = () => {
     finalMistakesList: finalMistakesList.value,
     originalChinese,
   };
-  localStorage.setItem(getProgressStorageKey(), JSON.stringify(progress));
+  editionStorage.setItem(getProgressStorageKey(), JSON.stringify(progress));
 };
 
 const restoreHomepageProgress = () => {
   try {
-    const rawProgress = localStorage.getItem(getProgressStorageKey());
+    const rawProgress = editionStorage.getItem(getProgressStorageKey());
     if (!rawProgress) return false;
     const saved = JSON.parse(rawProgress);
     if (!isSameProgressIdentity(saved)) return false;
@@ -202,7 +205,7 @@ const restoreHomepageProgress = () => {
     });
     return true;
   } catch (error) {
-    localStorage.removeItem(getProgressStorageKey());
+    editionStorage.removeItem(getProgressStorageKey());
     return false;
   }
 };
@@ -684,8 +687,8 @@ const goToNext = async () => {
             redirectPush();
           }
         } else {
-          if (!localStorage.getItem("dailyAnimation")) {
-            localStorage.setItem("dailyAnimation", "true");
+          if (!editionStorage.getItem("dailyAnimation")) {
+            editionStorage.setItem("dailyAnimation", "true");
           }
 
           accuracyRate.value =
@@ -823,7 +826,7 @@ const redirectPush = async () => {
   const pageIndex = await savePracticeResult();
   if (!pageIndex) return;
   await updateAccountItem();
-  localStorage.removeItem(getProgressStorageKey());
+  editionStorage.removeItem(getProgressStorageKey());
   router.push({
     path: "/complete",
     state: {
@@ -839,7 +842,7 @@ const redirectPush = async () => {
 const updateAccountItem = async () => {
   const params = new URLSearchParams();
   const user = scanLearningUser.value || getStoredScanLearningUser();
-  const rawName = localStorage.getItem("user_mini");
+  const rawName = editionStorage.getItem("user_mini");
   const valueName = user?.username || (rawName ? JSON.parse(rawName) : valueUsername.value);
 
   params.append("log", JSON.stringify(submitList.value));
@@ -877,8 +880,8 @@ const submitUser = async (mode) => {
       password: valuePassword.value.trim(),
     };
     scanLearningUser.value = user;
-    localStorage.setItem("scan_learning_user", JSON.stringify(user));
-    localStorage.setItem("user_mini", JSON.stringify(user.username));
+    editionStorage.setItem("scan_learning_user", JSON.stringify(user));
+    editionStorage.setItem("user_mini", JSON.stringify(user.username));
     showUserInput.value = false;
     showSuccessToast(response.data.message || "保存成功");
 
@@ -970,6 +973,15 @@ function calculateTimeDifference() {
 // 设备信息
 const showCodeInput = ref(false);
 const bindCode = ref("");
+const clearStoredBindCode = () => {
+  editionStorage.removeItem(getScanBindCodeStorageKey());
+  editionStorage.removeItem("bindCode");
+  editionStorage.removeItem("client_id");
+};
+
+const isInvalidBindStatus = (status) =>
+  status === false || status === "false";
+
 const newCode = async () => {
   console.log("NEWCODE");
   if (!bindCode.value) {
@@ -980,62 +992,61 @@ const newCode = async () => {
       duration: 0,
       message: "验证中...",
     });
-    const clientId = getOrCreateClientId(); // 生成随机唯一标识
-    const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
-    const fingerprintHash = deviceFingerprint.visitorId;
-    const components = Object.fromEntries(
-      Object.entries(deviceFingerprint.components).map(([key, val]) => [
-        key,
-        val.value,
-      ])
-    );
-    // console.log("components: ", components);
-    // console.log("Client ID:", clientId);
-    // console.log("Device Fingerprint:", deviceFingerprint);
-    // console.log("bindCode", bindCode.value);
-    let noSpaceStr = bindCode.value.replace(/\s/g, "");
-    const response = await axios.post("scans/", {
-      method: "newCode",
-      clientId,
-      fingerprintHash,
-      components,
-      bindCode: noSpaceStr,
-      type: getScanCodeType(),
-    });
+    try {
+      const clientId = getOrCreateClientId(); // 生成随机唯一标识
+      const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
+      const fingerprintHash = deviceFingerprint.visitorId;
+      const components = Object.fromEntries(
+        Object.entries(deviceFingerprint.components).map(([key, val]) => [
+          key,
+          val.value,
+        ])
+      );
+      const noSpaceStr = bindCode.value.replace(/\s/g, "");
+      const response = await axios.post("scans/", {
+        method: "newCode",
+        clientId,
+        fingerprintHash,
+        components,
+        bindCode: noSpaceStr,
+        type: getScanCodeType(),
+      });
 
-    console.log("status:", response.data.status);
-    console.log("message: ", response.data.message);
-    toast1.close();
-    if (response.data.status === "ok") {
-      showCodeInput.value = false;
-      showSuccessToast("验证成功");
-      localStorage.setItem(getScanBindCodeStorageKey(), bindCode.value);
-      localStorage.setItem("bindCode", bindCode.value);
-      initData();
-    } 
-    if (response.data.status === false) {
-      localStorage.removeItem(getScanBindCodeStorageKey());
-      localStorage.removeItem("bindCode");
-      localStorage.removeItem("client_id");
-      showDialog({
-        title: "机器码录入错误",
-        message: "如有异议联系老师：\n微179254624，获新机器码",
-        theme: "round-button",
-      }).then(() => {
-        window.location.reload();
-      });
-    }
-    if (response.data.status === "forbidden") {
-      localStorage.removeItem(getScanBindCodeStorageKey());
-      localStorage.removeItem("bindCode");
-      localStorage.removeItem("client_id");
-      showDialog({
-        title: "机器码已作废",
-        message: "如有异议联系老师：\n微179254624，获新机器码",
-        theme: "round-button",
-      }).then(() => {
-        window.location.reload();
-      });
+      const status = response.data?.status;
+      console.log("status:", status);
+      console.log("message: ", response.data?.message);
+      if (status === "ok") {
+        showCodeInput.value = false;
+        showSuccessToast("验证成功");
+        editionStorage.setItem(getScanBindCodeStorageKey(), bindCode.value);
+        editionStorage.setItem("bindCode", bindCode.value);
+        initData();
+      } else if (isInvalidBindStatus(status)) {
+        clearStoredBindCode();
+        showDialog({
+          title: "机器码录入错误",
+          message: "如有异议联系老师：\n微179254624，获新机器码",
+          theme: "round-button",
+        }).then(() => {
+          window.location.reload();
+        });
+      } else if (status === "forbidden") {
+        clearStoredBindCode();
+        showDialog({
+          title: "机器码已作废",
+          message: "如有异议联系老师：\n微179254624，获新机器码",
+          theme: "round-button",
+        }).then(() => {
+          window.location.reload();
+        });
+      } else {
+        showFailToast(response.data?.message || "机器码验证失败，请重试");
+      }
+    } catch (err) {
+      console.error("录入机器码异常:", err);
+      showFailToast("网络异常，请检查网络后重试");
+    } finally {
+      toast1.close();
     }
 
   }
@@ -1082,14 +1093,14 @@ const newCode = async () => {
 //       if (response.data.status === "ok") {
 //         showCodeInput.value = false;
 //         showSuccessToast("验证成功");
-//         localStorage.setItem("bindCode", bindCode.value);
+//         editionStorage.setItem("bindCode", bindCode.value);
 //         initData();
 //       }
 
 //       // 验证失败
 //       if (response.data.status === "forbidden") {
-//         localStorage.removeItem("bindCode");
-//         localStorage.removeItem("client_id");
+//         editionStorage.removeItem("bindCode");
+//         editionStorage.removeItem("client_id");
 //         showDialog({
 //           title: "机器码已被其他机器绑定",
 //           message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -1101,8 +1112,8 @@ const newCode = async () => {
 
 //       // 验证异常
 //       if (response.data.status === "false") {
-//         localStorage.removeItem("bindCode");
-//         localStorage.removeItem("client_id");
+//         editionStorage.removeItem("bindCode");
+//         editionStorage.removeItem("client_id");
 //         showCodeInput.value = true;
 //         showFailToast("请再次录入");
 //       }
@@ -1137,11 +1148,11 @@ function getUUID() {
   }
 }
 const getOrCreateClientId = () => {
-  let clientId = localStorage.getItem("client_id");
+  let clientId = editionStorage.getItem("client_id");
   if (!clientId) {
     // clientId = crypto.randomUUID();
     clientId = getUUID();
-    localStorage.setItem("client_id", clientId);
+    editionStorage.setItem("client_id", clientId);
   }
   return clientId;
 };
@@ -1206,7 +1217,7 @@ function initData() {
   speakWord(synonymsOptions.value[0].英文, synonymsOptions.value[0].正确答案);
 }
 onMounted(async () => {
-  // let localTeacherPassword = window.localStorage.getItem("teacherPassword");
+  // let localTeacherPassword = editionStorage.getItem("teacherPassword");
   // localTeacherPassword = atob(localTeacherPassword);
   // if (localTeacherPassword == "ss27834894") {
   //   showTabNav.value = true;
@@ -1230,7 +1241,7 @@ onMounted(async () => {
   const query = new URLSearchParams(window.location.search);
   const param = query.get("param");
   console.log("param: ", param);
-  let url = Global.BASE_URL + "/scans/?param=" + param;
+  let url = "scans/?param=" + param;
   // let url = "http://localhost:5173/homepage?param=123";
   const params = new URLSearchParams();
   params.append("method", "queryData");
@@ -1253,9 +1264,9 @@ onMounted(async () => {
   // 普通高等学校招生全国统一考试（天津卷）英语常用词词汇手册
   if (initialData.value.title.includes("天津卷高等学校招生3500词汇") || initialData.value.title.includes("天津外研社新教材初中")){
     const storedBindCode =
-      localStorage.getItem(getScanBindCodeStorageKey()) ||
-      (getScanCodeLevel() === "高中" ? localStorage.getItem("bindCode") : "");
-    if (!localStorage.getItem("client_id") || !storedBindCode) {
+      editionStorage.getItem(getScanBindCodeStorageKey()) ||
+      (getScanCodeLevel() === "高中" ? editionStorage.getItem("bindCode") : "");
+    if (!editionStorage.getItem("client_id") || !storedBindCode) {
       // 录入机器码
       showCodeInput.value = true;
       return;
@@ -1266,21 +1277,17 @@ onMounted(async () => {
         message: "验证中...",
       });
 
-      const clientId = localStorage.getItem("client_id"); // 获得保存的uuid
-      const bindCode = storedBindCode; // 获得保存的bindCode
-      const deviceFingerprint = await getStableFingerprint(); // 生成和机器绑定的唯一标识
-      const fingerprintHash = deviceFingerprint.visitorId;
-      const components = Object.fromEntries(
-        Object.entries(deviceFingerprint.components).map(([key, val]) => [
-          key,
-          val.value,
-        ])
-      );
-      // console.log("components: ", components);
-      // console.log("Client ID:", clientId);
-      // console.log("Device Fingerprint:", deviceFingerprint);
-
       try {
+        const clientId = editionStorage.getItem("client_id"); // 获得保存的 uuid
+        const bindCode = storedBindCode; // 获得保存的机器码
+        const deviceFingerprint = await getStableFingerprint();
+        const fingerprintHash = deviceFingerprint.visitorId;
+        const components = Object.fromEntries(
+          Object.entries(deviceFingerprint.components).map(([key, val]) => [
+            key,
+            val.value,
+          ])
+        );
         const response = await axios.post("scans/", {
           method: "checkCode",
           clientId,
@@ -1289,23 +1296,17 @@ onMounted(async () => {
           bindCode,
           type: getScanCodeType(),
         });
-        console.log("status: ", response.data.status);
-        console.log("message: ", response.data.message);
-        // console.log(response.data.message);
-
-        toast1.close();
+        const status = response.data?.status;
+        console.log("status: ", status);
+        console.log("message: ", response.data?.message);
         // 验证成功
-        if (response.data.status === "ok") {
-          localStorage.setItem(getScanBindCodeStorageKey(), bindCode);
-          localStorage.setItem("bindCode", bindCode);
+        if (status === "ok") {
+          editionStorage.setItem(getScanBindCodeStorageKey(), bindCode);
+          editionStorage.setItem("bindCode", bindCode);
           initData();
-        }
-
-        // 验证失败
-        if (response.data.status === "forbidden") {
-          localStorage.removeItem(getScanBindCodeStorageKey());
-          localStorage.removeItem("bindCode");
-          localStorage.removeItem("client_id");
+        } else if (status === "forbidden") {
+          // 服务端明确拒绝时才清除缓存，避免网络波动影响已绑定用户。
+          clearStoredBindCode();
           showDialog({
             title: "机器码已被其他机器绑定",
             message: "如有异议联系老师：\n微179254624，获新机器码",
@@ -1313,23 +1314,20 @@ onMounted(async () => {
           }).then(() => {
             window.location.reload();
           });
-        }
-
-        // 验证异常
-        if (response.data.status === "false") {
-          localStorage.removeItem(getScanBindCodeStorageKey());
-          localStorage.removeItem("bindCode");
-          localStorage.removeItem("client_id");
+        } else if (isInvalidBindStatus(status)) {
+          clearStoredBindCode();
           showCodeInput.value = true;
           showFailToast("请再次录入");
+        } else {
+          // 未知响应不是“未绑定”的可靠证据，保留缓存并提示用户重试。
+          showFailToast(response.data?.message || "机器码验证失败，请稍后重试");
         }
       } catch (err) {
-        toast1.close(); // 保证无论成功失败都关闭 loading
-        localStorage.removeItem(getScanBindCodeStorageKey());
-        localStorage.removeItem("bindCode");
-        localStorage.removeItem("client_id");
-        showCodeInput.value = true;
+        // 网络或指纹服务异常时保留绑定信息，不能误伤已绑定用户。
+        showFailToast("验证暂时失败，请检查网络后重试");
         console.error("绑定异常:", err);
+      } finally {
+        toast1.close();
       }
     }
   } else {

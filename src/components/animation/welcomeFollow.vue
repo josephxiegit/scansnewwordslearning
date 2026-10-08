@@ -25,6 +25,8 @@
 </template>
 
 <script setup>
+import { editionStorage } from '../../bookEdition.js';
+
 import { ref, onMounted, defineExpose, inject } from "vue";
 // 主题路径
 import encouragementSrcGoatAndWolf from "../../assets/welcomeFollow.png";
@@ -48,8 +50,8 @@ function show() {
 function hide() {
   // 立即开始退出动画
   isExiting.value = true;
-  // 保存选择的版本到 localStorage
-  localStorage.setItem("bookVersion", bookVersion.value);
+  // 保存选择的版本到 editionStorage
+  editionStorage.setItem("bookVersion", bookVersion.value);
   // 发送自定义事件到父组件
   const event = new CustomEvent('version-selected', { detail: { version: bookVersion.value } });
   window.dispatchEvent(event);

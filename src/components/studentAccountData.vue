@@ -1,4 +1,6 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
 import { ref, onMounted, getCurrentInstance, reactive, nextTick } from "vue";
 import "vant/lib/index.css";
 
@@ -71,7 +73,7 @@ async function queryData() {
 const handlePassword = (pwd) => {
   // console.log("用户输入的密码是：", pwd);
   if (pwd == "ss654321") {
-    localStorage.setItem("teacherPassword", pwd);
+    editionStorage.setItem("teacherPassword", pwd);
     showDialogPassWord.value = false;
   } else {
     showToast({ message: '密码错误，即将返回首页', type: 'fail' })
@@ -101,12 +103,12 @@ const filterData = async () => {
 }
 
 onMounted(() => {
-  let localTeacherPassword = window.localStorage.getItem("teacherPassword");
+  let localTeacherPassword = editionStorage.getItem("teacherPassword");
   // console.log("localTeacherPassword: ", localTeacherPassword);
   if (!localTeacherPassword || localTeacherPassword !== "ss654321") {
     showDialogPassWord.value = true;
   } else {
-    localStorage.setItem("teacherPassword", "ss654321");
+    editionStorage.setItem("teacherPassword", "ss654321");
     showDialogPassWord.value = false;
   }
   queryData();

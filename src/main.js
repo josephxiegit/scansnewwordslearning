@@ -77,7 +77,7 @@ const routes = [
 ];
 // 创建router实例
 const router = createRouter({
-    history: createWebHistory(),
+    history: createWebHistory(import.meta.env.BASE_URL),
     routes, // 使用路由配置
 });
 

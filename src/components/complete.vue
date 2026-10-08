@@ -1,4 +1,6 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
 import { ref, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import happyending from "../assets/sound/happyending.mp3";
@@ -24,7 +26,7 @@ onMounted(() => {
   audioSuccessPage.play().catch((err) => {
     console.warn("播放失败：", err);
   });
-  valueUsername.value = JSON.parse(localStorage.getItem("user_mini"));
+  valueUsername.value = JSON.parse(editionStorage.getItem("user_mini"));
   accuracyRate.value = history.state.accuracyRate || "0.00%";
   timeDifference.value = history.state.timeDifference || "";
   pageIndex.value = history.state.pageIndex || "";

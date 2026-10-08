@@ -1,4 +1,6 @@
 <script setup>
+import { editionStorage } from '../bookEdition.js';
+
 import { computed, getCurrentInstance, nextTick, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { showDialog, showFailToast, showLoadingToast } from "vant";
@@ -17,10 +19,10 @@ const currentTitle = ref("");
 
 const getStoredUser = () => {
   try {
-    const rawUser = localStorage.getItem("scan_learning_user");
+    const rawUser = editionStorage.getItem("scan_learning_user");
     return rawUser ? JSON.parse(rawUser) : null;
   } catch (error) {
-    localStorage.removeItem("scan_learning_user");
+    editionStorage.removeItem("scan_learning_user");
     return null;
   }
 };
