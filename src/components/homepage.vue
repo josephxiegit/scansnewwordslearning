@@ -972,6 +972,7 @@ function calculateTimeDifference() {
 }
 // 设备信息
 const showCodeInput = ref(false);
+const showMissingMachineCodeHint = ref(false);
 const bindCode = ref("");
 const clearStoredBindCode = () => {
   editionStorage.removeItem(getScanBindCodeStorageKey());
@@ -1268,6 +1269,7 @@ onMounted(async () => {
       (getScanCodeLevel() === "高中" ? editionStorage.getItem("bindCode") : "");
     if (!editionStorage.getItem("client_id") || !storedBindCode) {
       // 录入机器码
+      showMissingMachineCodeHint.value = !storedBindCode;
       showCodeInput.value = true;
       return;
     } else {
@@ -1628,6 +1630,9 @@ onMounted(async () => {
         style="font-size: 18px; font-weight: 700; margin: 1rem 2rem 1rem 1rem"
       >
         录入机器码
+      </div>
+      <div v-if="showMissingMachineCodeHint" style="margin: 0 1rem 1rem">
+        查看书中首页中间机器码
       </div>
       <van-cell-group inset>
         <van-field
